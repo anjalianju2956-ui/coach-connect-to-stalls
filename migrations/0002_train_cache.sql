@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS train_lookup_cache (train_number TEXT PRIMARY KEY, service_date TEXT NOT NULL, response_json JSONB NOT NULL, fetched_at TIMESTAMPTZ NOT NULL DEFAULT now());
