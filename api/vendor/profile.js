@@ -1,7 +1,7 @@
 import { db } from 'hatchable';
 
 export const access = 'user';
-export const methods = ['GET', 'POST'];
+export const methods = ['GET', 'POST', 'DELETE'];
 
 function clean(value, max = 160) {
   return String(value ?? '').trim().replace(/[<>]/g, '').slice(0, max);
@@ -16,6 +16,12 @@ export default async function (req, res) {
         [userId]
       );
       return res.json({ ok: true, profile: result.rows[0] || null });
+    }
+    if (req.method === 'DELETE') {
+      const owned = await db.query('SELECT COUNT(*)::int AS count FROM passenger_stalls WHERE owner_user_id = $1', [userId]);
+      if (Number(owned.rows[0]?.count || 0) > 0) return res.status(409).json({ ok: false, error: 'Delete your stalls before deleting the vendor profile.' });
+      await db.query('DELETE FROM vendor_profiles WHERE user_id = $1', [userId]);
+      return res.json({ ok: true, deleted: true });
     }
     if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed.' });
     const vendorName = clean(req.body?.vendorName, 120);
