@@ -1,38 +1,27 @@
-# Coach-Connect Passenger — Hatchable Demo
+# Coach-Connect — Live Train Next-Halt Tracker
 
-Mobile-first passenger demo for next-station stall discovery.
+This version is intentionally limited to live train status. Enter a 5-digit train number to fetch the current reported location, next halt, distance, delay, and train details from RailKit. The app does not request GPS, coach number, stall data, or location permissions.
 
-## Stack
+## Hosted stack
 
 - Frontend: HTML, CSS and vanilla JavaScript in `public/`.
-- Backend: Hatchable JavaScript serverless handlers in `api/`.
-- Data: Hatchable PostgreSQL, raw parameterized SQL (`db.query`).
-- Live tracking adapter: `api/journey.js`; key is configured server-side with `RAILKIT_API_KEY`.
-- Coach match: rank coach ranges as exact (priority 1), within ±2 coaches (priority 2), then other listings (priority 3).
-- No GPS, order/cart, checkout, payments, or order status.
+- Backend: Hatchable serverless API handler at `api/journey.js`.
+- Secret storage: Hatchable project Setup; `RAILKIT_API_KEY` remains server-side.
+- Live provider: RailKit WIMT v2 endpoint `GET https://api.railkit.in/api/v2/trains/{trainNumber}/live/{YYYY-MM-DD}`, authenticated with the same request-signing headers as the RailKit SDK.
 
-## Configure RailKit
+## Enable real live tracking
 
-1. Create an API key in your RailKit account dashboard.
-2. In Hatchable Console → Coach-Connect Passenger → Setup, set `RAILKIT_API_KEY`. Never place a real key in browser JavaScript or commit it to source control.
-3. Verify the current endpoint, auth headers, query parameters, and JSON response format with the RailKit docs for your subscription. The current backend adapter assumes `GET https://railkit.in/api/trains/{trainNumber}/track?date=YYYY-MM-DD`, bearer + `x-api-key` headers, and a route-oriented response; adjust the adapter if official docs differ.
-4. Deploy and test with a train known to be running. Check Hatchable logs on errors.
+1. Open Hatchable Console → Coach-Connect Passenger → Setup.
+2. Add the RailKit key as `RAILKIT_API_KEY`. Do not paste the key into frontend code or commit it to Git.
+3. Save, then use the Track Train form with a valid 5-digit train number.
+4. If the request fails, the UI displays the actual configuration/API error; the app does not fabricate a station or fall back to demo data.
 
-**Important:** the assumed RailKit URL/response schema has not yet been validated by a successful real API request in this build. Without a configured key, the app marks results as demo and does not claim live train position, delay, or next halt. For judges, use “Explore demo stalls” to exercise the stall UI using the fictional Nagda Junction catalogue.
+RailKit's documented v2 route and response fields are referenced at https://railkit.in/docs/live-tracking-v2. The backend accepts the response's `data.nextHalt`, `data.currentLocation`, `data.trainInfo`, `data.delayMinutes`, `data.statusText`, and `data.lastUpdatedAt` fields. REST authentication headers are set server-side. The real provider response should be tested after the owner's API key is configured; this environment did not have access to a configured key, so no successful real-data request is claimed here.
 
-## Demo data
+## Usage and freshness
 
-`seed.sql` contains 16 fictional listings at NDLS, BCT, MAS, HWH, and SBC. A four-stall Nagda Junction fallback is also included in the stalls endpoint for demonstrations. All names, menus, prices, platforms, and coach ranges are illustrative examples — not verified official vendor data.
+Each Track/Refresh action makes one upstream request. There is no automatic polling, to avoid consuming the API quota without the user's knowledge. Press Refresh to fetch the latest available RailKit response.
 
-## Endpoints
+## Local project note
 
-- `POST /api/journey` body `{ trainNumber, coachNumber, date? }`; returns normalized `{ ok, journey }` and cached live responses for a short TTL.
-- `GET /api/stalls?station=NAD&coach=5`; returns `{ source, demo, stationCode, station, stalls[] }` sorted by coach-range relevance.
-
-## Local environment handoff
-
-This hosted Hatchable project does not run Next.js, Express, or `npm install`. Use a normal local Node/Express app if you need `.env.example`; the local example should contain `RAILKIT_API_KEY=your_key_here` and `PORT=3000`. For the hosted app, keep the actual key in Hatchable Setup.
-
-## Safety
-
-Coach-range matching is only a discovery cue; it cannot guarantee physical stall distance or that a vendor is directly beside a coach. Follow official railway signage, announcements, and staff instructions. Do not move between coaches or approach a platform edge while a train is moving. Production readiness requires validating the RailKit schema, request limits/cache behavior, real vendor onboarding and verified platform/stall coordinates before representing routes as accurate.
+This is deployed on Hatchable, which uses its serverless runtime and does not run `npm install`. A standalone local Node/Express project would require a separate export/rebuild and an `.env.example` containing `RAILKIT_API_KEY=your_key_here`.

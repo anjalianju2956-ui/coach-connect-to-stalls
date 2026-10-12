@@ -1,110 +1,148 @@
-import { db, config } from 'hatchable';
+import { config } from 'hatchable';
+
 export const access = 'public';
 export const methods = ['POST'];
 
-const stationNames = {
-  NDLS:'New Delhi', BCT:'Mumbai Central', MAS:'Chennai Central',
-  HWH:'Howrah Junction', SBC:'KSR Bengaluru City', UJN:'Ujjain Junction',
-  NAD:'Nagda Junction', BPL:'Bhopal Junction', JHS:'Jhansi Junction', AGC:'Agra Cantt',
-  NGP:'Nagpur Junction', ET:'Itarsi Junction', KOTA:'Kota Junction', SUR:'Solapur',
-  PUNE:'Pune Junction', CSMT:'Chhatrapati Shivaji Maharaj Terminus',
-  VSKP:'Visakhapatnam', BZA:'Vijayawada Junction', SC:'Secunderabad Junction',
-  GHY:'Guwahati', PNBE:'Patna Junction', LKO:'Lucknow Charbagh', CNB:'Kanpur Central'
-};
-const cacheMinutes = 3;
-const simplify = (value) => String(value || '').replace(/[<>]/g,'').slice(0,120);
-function stationCode(item) {
-  if (!item) return '';
-  const raw = item.stationCode || item.station_code || item.code || item.station?.code || item.station?.stationCode || item.stnCode || '';
-  return String(raw).trim().toUpperCase();
+function indiaDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return values.year + '-' + values.month + '-' + values.day;
 }
-function stationName(item) {
-  if (!item) return '';
-  return String(item.stationName || item.station_name || item.name || item.station?.name || stationNames[stationCode(item)] || '').trim();
+function clean(value, max = 160) { return String(value ?? '').replace(/[<>]/g, '').trim().slice(0, max); }
+function firstStation(data) {
+  const info = Array.isArray(data.trainInfo) ? data.trainInfo[0] : (data.trainInfo || data.train || {});
+  const source = data.source || info.source || {};
+  const destination = data.destination || info.destination || {};
+  return { info, source, destination };
 }
-function halt(item) {
-  if (!item) return false;
-  const text = String(item.stopType || item.stop_type || item.type || item.status || '').toLowerCase();
-  if (item.isHalt === false || item.is_halt === false || item.halt === false || item.isStopping === false) return false;
-  if (text.includes('pass') || text.includes('non-stop') || text.includes('non stop')) return false;
-  return true;
-}
-function normalizeTrain(data, train, coach, date) {
-  const root = data?.data || data?.result || data?.trainStatus || data?.train_status || data;
-  const route = root.route || root.stations || root.schedule || root.routeStations || root.trainRoute || root.stationList || [];
-  if (!Array.isArray(route) || route.length === 0) throw new Error('RailKit response did not include a route; check the response schema for this train.');
-  const currentObj = root.currentLocation || root.current_location || root.currentStation || root.current_station || root.current || root.position || {};
-  let currentCode = stationCode(currentObj) || String(root.currentStationCode || root.current_station_code || root.currentStationCode || '').toUpperCase();
-  let currentIndex = Number.isInteger(root.currentStationIndex) ? root.currentStationIndex : -1;
-  if (currentIndex < 0 && currentCode) currentIndex = route.findIndex(s => stationCode(s) === currentCode);
-  const nextObj = root.nextStation || root.next_station || root.nextStop || root.next_stop;
-  let nextIndex = -1;
-  if (nextObj) nextIndex = route.findIndex(s => (stationCode(s) && stationCode(s) === stationCode(nextObj)) || (stationName(s) && stationName(s) === stationName(nextObj)));
-  let current = currentIndex >= 0 ? route[currentIndex] : currentObj;
-  let next = nextIndex >= 0 ? route[nextIndex] : (nextObj || null);
-  if (!next && currentIndex >= 0) {
+function getNextHalt(data, current) {
+  const direct = data.nextHalt || data.next_halt || data.nextStation || data.next_station;
+  if (direct && (direct.stnName || direct.stationName || direct.name || direct.stnCode || direct.stationCode || direct.code)) return direct;
+  const route = Array.isArray(data.route) ? data.route : [];
+  const currentCode = String(current.stnCode || current.stationCode || current.code || '').toUpperCase();
+  let currentIndex = currentCode ? route.findIndex(s => String(s.stnCode || s.stationCode || s.code || '').toUpperCase() === currentCode) : -1;
+  if (currentIndex >= 0) {
     for (let i = currentIndex + 1; i < route.length; i++) {
-      if (halt(route[i])) { next = route[i]; nextIndex = i; break; }
+      const stop = route[i];
+      const status = String(stop.status || '').toLowerCase();
+      if (stop.isHalt === false || /pass|passed|departed|arrived/.test(status)) continue;
+      return stop;
     }
   }
-  if (!next && currentCode) {
-    const pos = route.findIndex(s => stationCode(s) === currentCode);
-    if (pos >= 0) for (let i = pos + 1; i < route.length; i++) { if (halt(route[i])) { next=route[i]; nextIndex=i; break; } }
+  const upcoming = route.find(s => s.isHalt !== false && /upcoming|next|yet to come|scheduled/.test(String(s.status || '').toLowerCase()));
+  return upcoming || null;
+}
+function stationTime(value) {
+  if (value && typeof value === 'object') return clean(value.actual || value.expected || value.scheduled || value.time || '', 60);
+  return clean(value || '', 60);
+}
+function normalize(payload, trainNumber, date) {
+  if (!payload || payload.success !== true || !payload.data) {
+    throw new Error(clean(payload?.error || payload?.message || 'RailKit did not return live train data.', 240));
   }
+  const data = payload.data;
+  const { info, source, destination } = firstStation(data);
+  const current = data.currentLocation || data.current_location || {};
+  const next = getNextHalt(data, current);
   if (!next) {
-    if (root.hasArrived || root.reachedDestination || String(root.status || '').toLowerCase().includes('reached destination')) return {arrived:true,trainNumber:train,coachNumber:coach,serviceDate:date,mode:'live',source:'RailKit',trainName:simplify(root.trainName || root.train_name || root.name || 'Train '+train),message:'Train has arrived at its destination.'};
-    throw new Error('Could not determine the next halting station from the RailKit route response.');
+    const statusText = clean(data.statusText || data.statusNote || data.status || '');
+    throw new Error(statusText ? 'RailKit status: ' + statusText + '. A next halt was not returned for this train.' : 'RailKit returned no next halt for this train. It may not be running or may have reached its destination.');
   }
-  const origin = root.source || root.origin || root.from || route[0] || {};
-  const destination = root.destination || root.dest || root.to || route[route.length-1] || {};
-  const delay = Number(root.delayMinutes ?? root.delay_minutes ?? root.delay ?? root.lateBy ?? root.late_by ?? 0);
-  const allCodes = route.map(stationCode).filter(Boolean);
+  const nextCode = clean(next.stnCode || next.stationCode || next.code || next.station?.code, 12).toUpperCase();
+  const nextName = clean(next.stnName || next.stationName || next.name || next.station?.name, 160);
+  if (!nextName && !nextCode) throw new Error('RailKit did not provide the next station name or code.');
+  const route = Array.isArray(data.route) ? data.route : [];
+  const routeStop = route.find(s => String(s.stnCode || s.stationCode || s.code || '').toUpperCase() === nextCode) || next;
+  const delayValue = data.delayMinutes ?? data.delay_minutes ?? current.delayMinutes ?? current.delay_minutes;
+  const delay = Number(delayValue);
+  const distanceValue = current.distanceToNextStationKm ?? current.distance_to_next_station_km ?? next.distanceToNextStationKm ?? next.distanceKm ?? next.distance;
+  const distance = Number(distanceValue);
   return {
-    trainNumber:train, coachNumber:coach, serviceDate:date, mode:'live', source:'RailKit',
-    trainName:simplify(root.trainName || root.train_name || root.name || root.train?.name || 'Train '+train),
-    sourceStation:simplify(typeof origin === 'string' ? origin : stationName(origin) || stationNames[stationCode(origin)] || stationCode(origin) || 'Source unavailable'),
-    destinationStation:simplify(typeof destination === 'string' ? destination : stationName(destination) || stationNames[stationCode(destination)] || stationCode(destination) || 'Destination unavailable'),
-    currentStationCode:stationCode(current) || currentCode,
-    currentStation:simplify(stationName(current) || stationNames[stationCode(current)] || (currentCode ? stationNames[currentCode] || currentCode : root.currentLocationName || root.current_location_name || 'Between stations')),
-    nextStationCode:stationCode(next), nextStation:simplify(stationName(next) || stationNames[stationCode(next)] || stationCode(next) || 'Next station'),
-    nextStationIndex:nextIndex,
-    delayMinutes:Number.isFinite(delay) ? delay : 0,
-    eta:simplify(next.expectedArrival || next.expected_arrival || next.arrivalTime || next.arrival_time || next.eta || ''),
-    updatedAt:new Date().toISOString(), routeCodes:allCodes,
-    message:'Live status returned by RailKit. Station stop and arrival details can change; follow railway announcements.'
+    trainNumber,
+    trainName: clean(info.name || info.trainName || info.train_name || data.trainName || data.train_name || 'Train ' + trainNumber),
+    journeyDate: date,
+    live: data.isLive === true || String(data.status || '').toLowerCase() === 'running',
+    status: clean(data.status || (data.isLive === true ? 'running' : 'status available'), 60),
+    statusText: clean(data.statusText || data.statusNote || data.statusTextNote || '', 240),
+    source: { name: clean(source.name || source.stationName || info.from_stn_name || info.sourceName || ''), code: clean(source.code || source.stnCode || info.from_stn_code || info.sourceCode || '').toUpperCase() },
+    destination: { name: clean(destination.name || destination.stationName || info.to_stn_name || info.destName || ''), code: clean(destination.code || destination.stnCode || info.to_stn_code || info.destCode || '').toUpperCase() },
+    currentLocation: {
+      name: clean(current.stnName || current.stationName || current.name || current.currentLocation || ''),
+      code: clean(current.stnCode || current.stationCode || current.code || '').toUpperCase(),
+      status: clean(current.status || '', 60),
+      distanceToNextStationKm: Number.isFinite(Number(current.distanceToNextStationKm)) ? Number(current.distanceToNextStationKm) : null
+    },
+    nextStation: {
+      name: nextName || nextCode,
+      code: nextCode,
+      distanceKm: Number.isFinite(distance) && distance >= 0 ? distance : null,
+      scheduledArrival: stationTime(routeStop.arrival || routeStop.arrivalTime || routeStop.arrival_time || ''),
+      scheduledDeparture: stationTime(routeStop.departure || routeStop.departureTime || routeStop.departure_time || ''),
+      platform: clean(routeStop.platform || '', 30),
+      sequence: Number.isFinite(Number(routeStop.sequence)) ? Number(routeStop.sequence) : null
+    },
+    delayMinutes: Number.isFinite(delay) ? delay : null,
+    lastUpdatedAt: clean(data.lastUpdatedAt || data.lastUpdated || data.last_update || data.lastUpdate || data.updatedAt || '', 100),
+    provider: clean(data._provider || 'RailKit', 40),
+    fetchedAt: new Date().toISOString()
   };
 }
-export default async function(req,res){
- const body=req.body||{}; const train=String(body.trainNumber||'').trim(); const coach=String(body.coachNumber||'').trim().toUpperCase();
- if(!/^\d{4,5}$/.test(train)) return res.status(400).json({error:'Enter a valid 4–5 digit train number.'});
- if(!/^(?:[1-9]|1\d|2[0-4])$/.test(coach)) return res.status(400).json({error:'Enter a coach number from 1 to 24.'});
- const date=String(body.date || new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'})).slice(0,10);
- const apiKey=await config.get('RAILKIT_API_KEY');
- if(!apiKey){
-   return res.json({ok:true,journey:{trainNumber:train,coachNumber:coach,serviceDate:date,mode:'demo',verification:'unverified',trainName:'Train '+train,sourceStation:'Source not verified',destinationStation:'Destination not verified',currentStation:'Live location unavailable',currentStationCode:'',nextStation:'Nagda Junction (demo catalogue)',nextStationCode:'NAD',delayMinutes:0,eta:'Unavailable',updatedAt:new Date().toISOString(),source:'Clearly labelled demo fallback',message:'RailKit API key is not configured. Add RAILKIT_API_KEY in Hatchable Setup to enable live tracking.',fallback:true}});
- }
- try {
-   const cached=await db.query('SELECT response_json, fetched_at FROM train_lookup_cache WHERE train_number=$1 AND service_date=$2 AND fetched_at > now() - interval \'3 minutes\'',[train,date]);
-   if(cached.rows.length){
-     const j={...cached.rows[0].response_json,coachNumber:coach,cacheHit:true,updatedAt:cached.rows[0].fetched_at};
-     return res.json({ok:true,journey:j});
-   }
- } catch(e){ console.error('Train cache read failed',String(e).slice(0,120)); }
- try {
-   const url='https://railkit.in/api/trains/'+encodeURIComponent(train)+'/track?date='+encodeURIComponent(date);
-   const response=await fetch(url,{headers:{'Authorization':'Bearer '+apiKey,'x-api-key':apiKey,'Accept':'application/json'},timeout_ms:12000});
-   if(!response.ok) {
-     if(response.status===404) return res.status(404).json({error:'Train not found or not scheduled for the selected date. Verify the train number and date.'});
-     if(response.status===401 || response.status===403) return res.status(502).json({error:'RailKit rejected the API key. Check RAILKIT_API_KEY in Hatchable Setup.'});
-     return res.status(502).json({error:'Unable to fetch train status. Check the train number or try again shortly.'});
-   }
-   const upstream=await response.json();
-   const journey=normalizeTrain(upstream,train,coach,date);
-   try { await db.query('INSERT INTO train_lookup_cache (train_number,service_date,response_json,fetched_at) VALUES ($1,$2,$3::jsonb,now()) ON CONFLICT (train_number) DO UPDATE SET service_date=EXCLUDED.service_date,response_json=EXCLUDED.response_json,fetched_at=now()',[train,date,JSON.stringify(journey)]); } catch(e){console.error('Train cache write failed',String(e).slice(0,120));}
-   return res.json({ok:true,journey});
- } catch(e) {
-   console.error('RailKit track failed',String(e?.message||e).slice(0,200));
-   try { const cached=await db.query('SELECT response_json,fetched_at FROM train_lookup_cache WHERE train_number=$1 ORDER BY fetched_at DESC LIMIT 1',[train]); if(cached.rows.length) return res.json({ok:true,journey:{...cached.rows[0].response_json,coachNumber:coach,cacheHit:true,stale:true,updatedAt:cached.rows[0].fetched_at,message:'RailKit unavailable. Showing the last cached train status; verify with station announcements.'}}); } catch {}
-   return res.status(502).json({error:'Unable to fetch train status. Check train number and RailKit connection, then try again.'});
- }
+
+export default async function(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST to track a train.' });
+  const trainNumber = String(req.body?.trainNumber || '').trim();
+  if (!/^\d{5}$/.test(trainNumber)) return res.status(400).json({ error: 'Enter a valid 5-digit train number.' });
+
+  const apiKey = await config.get('RAILKIT_API_KEY');
+  if (!apiKey || !String(apiKey).trim()) {
+    return res.status(503).json({ error: 'Live tracking is not configured yet. Add your RailKit API key in Hatchable → Coach-Connect Passenger → Setup, then try again.' });
+  }
+
+  const date = indiaDate();
+  const path = '/api/v2/trains/' + encodeURIComponent(trainNumber) + '/live/' + encodeURIComponent(date);
+  const url = 'https://api.railkit.in' + path;
+  try {
+    // Match the official RailKit SDK request signature, using Web Crypto so this hosted
+    // runtime does not need an npm install. The RailKit API key stays server-side.
+    const timestamp = String(Date.now());
+    const nonceBytes = crypto.getRandomValues(new Uint8Array(32));
+    const nonce = Array.from(nonceBytes, b => b.toString(16).padStart(2, '0')).join('');
+    const emptyPayloadHash = await crypto.subtle.digest('SHA-256', new Uint8Array());
+    const payloadHash = Array.from(new Uint8Array(emptyPayloadHash), b => b.toString(16).padStart(2, '0')).join('');
+    const signingSecret = '97c56e08b27b161124f88acd4f24d1bd50f48075f11dc23b9ea6c0bc9b2f8794';
+    const signingKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(signingSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const canonical = ['GET', path, timestamp, nonce, payloadHash, String(apiKey).trim()].join('\n');
+    const signatureBytes = await crypto.subtle.sign('HMAC', signingKey, new TextEncoder().encode(canonical));
+    const signature = Array.from(new Uint8Array(signatureBytes), b => b.toString(16).padStart(2, '0')).join('');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'x-api-key': String(apiKey).trim(),
+        'x-irctc-sdk-ts': timestamp,
+        'x-irctc-sdk-nonce': nonce,
+        'x-irctc-sdk-payload-sha256': payloadHash,
+        'x-irctc-sdk-signature': signature,
+        'x-irctc-sdk-version': '1'
+      },
+      signal: AbortSignal.timeout(15000)
+    });
+    let payload;
+    try { payload = await response.json(); } catch { return res.status(502).json({ error: 'RailKit returned an unreadable response. Check the API service and key.' }); }
+    if (!response.ok) {
+      const providerMessage = clean(payload?.error || payload?.message || '', 220);
+      if (response.status === 401 || response.status === 403) return res.status(502).json({ error: 'RailKit rejected the API key. Check the key in Hatchable Setup.' });
+      if (response.status === 429) return res.status(429).json({ error: 'RailKit request quota or rate limit reached. Try later or check your RailKit plan.' });
+      if (response.status === 404) return res.status(404).json({ error: providerMessage || 'Train not found for today, or RailKit has no live record for it.' });
+      return res.status(502).json({ error: providerMessage || 'RailKit could not return this train status. Try again later.' });
+    }
+    let journey;
+    try { journey = normalize(payload, trainNumber, date); }
+    catch (e) { return res.status(422).json({ error: clean(e?.message || 'RailKit did not return a next station.', 260) }); }
+    return res.json({ ok: true, journey });
+  } catch (e) {
+    console.error('RailKit live tracking failed', clean(e?.message || e, 180));
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return res.status(504).json({ error: 'RailKit timed out. Try again in a little while.' });
+    return res.status(502).json({ error: 'Could not reach RailKit. Check the network or try again later.' });
+  }
 }
