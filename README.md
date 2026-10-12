@@ -1,29 +1,96 @@
-[![Deploy to Hatchable](https://hatchable.com/deploy-button.svg)](https://hatchable.com/deploy?repo=https://github.com/anjalianju2956-ui/coach-connect-to-stalls)
+# 🚆 Coach-Connect to Stalls
 
-# Coach-Connect — Live Train Next-Halt Tracker
+**Discover food, refreshments, and local stalls at railway stations based on your train journey, coach number, and platform information.**
 
-This version is intentionally limited to live train status. Enter a 5-digit train number to fetch the current reported location, next halt, distance, delay, and train details from RailKit. The app does not request GPS, coach number, stall data, or location permissions.
+## 📌 About the Project
 
-## Hosted stack
+Coach-Connect to Stalls is a railway passenger and vendor platform designed to bridge the gap between train passengers and local stall vendors at railway stations.
 
-- Frontend: HTML, CSS and vanilla JavaScript in `public/`.
-- Backend: Hatchable serverless API handler at `api/journey.js`.
-- Secret storage: Hatchable project Setup; `RAILKIT_API_KEY` remains server-side.
-- Live provider: RailKit WIMT v2 endpoint `GET https://api.railkit.in/api/v2/trains/{trainNumber}/live/{YYYY-MM-DD}`, authenticated with the same request-signing headers as the RailKit SDK.
+Passengers can discover nearby station stalls, explore menus and prices, check item availability, and access directions to stall locations. Vendors can register their stalls, manage stall information, update menus and prices, and maintain stock availability through a separate vendor portal.
 
-## Enable real live tracking
+The project aims to make station-side stall discovery more convenient while helping local vendors improve their visibility among railway passengers.
 
-1. Open Hatchable Console → Coach-Connect Passenger → Setup.
-2. Add the RailKit key as `RAILKIT_API_KEY`. Do not paste the key into frontend code or commit it to Git.
-3. Save, then use the Track Train form with a valid 5-digit train number.
-4. If the request fails, the UI displays the actual configuration/API error; the app does not fabricate a station or fall back to demo data.
+## 🎯 Objectives
 
-RailKit's documented v2 route and response fields are referenced at https://railkit.in/docs/live-tracking-v2. The backend accepts the response's `data.nextHalt`, `data.currentLocation`, `data.trainInfo`, `data.delayMinutes`, `data.statusText`, and `data.lastUpdatedAt` fields. REST authentication headers are set server-side. The real provider response should be tested after the owner's API key is configured; this environment did not have access to a configured key, so no successful real-data request is claimed here.
+- Help passengers discover food stalls and other useful services at railway stations.
+- Display stall information according to station, platform, and coach-side location where reliable matching information is available.
+- Allow passengers to view menus, prices, and stock availability.
+- Provide Google Maps directions to stall locations when location information is available.
+- Give vendors a dedicated portal to manage their stalls and menu information.
+- Synchronize vendor updates with the passenger-facing stall listings.
+- Integrate live train information through the RailKit API.
 
-## Usage and freshness
+## 👥 Main Modules
 
-Each Track/Refresh action makes one upstream request. There is no automatic polling, to avoid consuming the API quota without the user's knowledge. Press Refresh to fetch the latest available RailKit response.
+### 1. Passenger Website
+- Enter train number and coach number.
+- Retrieve train journey information using the RailKit integration.
+- View the next station and platform information when provided by the live data source.
+- Browse station stalls and filter listings by category.
+- View stall details, menus, prices, and stock status.
+- Access directions to available stall locations.
 
-## Local project note
+### 2. Vendor Portal
+- Register and manage stalls.
+- Provide station name, station code, platform number, and coach-side location.
+- Add, edit, and remove menu items.
+- Update item prices and stock availability.
+- Manage stall availability and passenger publication status.
+- Reflect published stall and menu changes in passenger listings.
 
-This is deployed on Hatchable, which uses its serverless runtime and does not run `npm install`. A standalone local Node/Express project would require a separate export/rebuild and an `.env.example` containing `RAILKIT_API_KEY=your_key_here`.
+### 3. Stall Discovery and Matching
+- Match stalls to the relevant station.
+- Use platform and coach-side information to improve stall relevance.
+- Support approximate proximity matching when reliable location or station-layout data is available.
+- Avoid presenting unverified coach positions or distances as confirmed information.
+
+### 4. Live Train Information
+- Retrieve train journey information through the RailKit API.
+- Display the next station and platform when available from the API response.
+- Keep API credentials on the server side.
+- Use caching and controlled API requests to reduce unnecessary usage.
+
+## 🛠️ Technology Stack
+
+- **Frontend:** HTML, CSS, JavaScript
+- **Backend:** JavaScript serverless API routes
+- **Platform:** Hatchable
+- **External API:** RailKit for live train information
+- **Version Control:** Git and GitHub
+- **Database and Storage:** To be finalized or verified against the current project configuration
+
+## 🔄 Expected Workflow
+
+1. A passenger enters a train number and coach number.
+2. The application retrieves the available train journey information.
+3. The passenger selects the relevant next-station stall listing.
+4. The system displays matching published stalls, their menus, prices, and stock availability.
+5. The passenger views directions to a stall.
+6. A vendor updates stall details, menu items, prices, or stock through the vendor portal.
+7. The passenger website retrieves the updated information from the shared backend.
+
+## 🔐 Security and Reliability
+
+- Keep API keys and sensitive configuration out of frontend code and public GitHub files.
+- Validate vendor inputs and API responses.
+- Show clear messages when live train, platform, location, or stock information is unavailable.
+- Distinguish demo data from verified vendor listings.
+- Avoid claiming precise coach-to-stall distances without reliable station-layout or coordinate data.
+
+## 🚧 Project Status
+
+The passenger website, vendor portal, and API source files are maintained in this repository. The project is under active development, with further integration, local testing, vendor-to-passenger synchronization, and deployment verification planned.
+
+Features should be considered complete only after they have been tested against the actual backend and passenger-facing application.
+
+## 🌟 Vision
+
+To make railway station stall discovery easier for passengers while helping local vendors connect with travellers through a simple, accessible digital platform.
+
+---
+
+**Repository:** `coach-connect-to-stalls`
+
+**Project:** Coach-Connect to Stalls
+
+**Purpose:** Railway passenger stall discovery and vendor management.
