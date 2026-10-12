@@ -2,26 +2,51 @@ const app = document.getElementById('app');
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let lastTrainNumber = '';
 let lastJourney = null;
-function shell(content) {
-  app.innerHTML = '<header class="top"><div class="brand"><span class="logo">↗</span>Coach-Connect</div><span class="tag">LIVE TRAIN STATUS</span></header><main class="wrap">' + content + '<footer class="footer"><span>Coach-Connect · Live status provided by RailKit</span><span>Always follow official railway announcements and station displays.</span></footer></main>';
+let stallCache = new Map();
+let stallsById = new Map();
+
+function routeName() { return (window.location.hash || '#live').slice(1).split('/')[0] || 'live'; }
+function routeParts() { return (window.location.hash || '#live').slice(1).split('/'); }
+function navigate(route) {
+  if (routeName() === route) { renderRoute(); return; }
+  history.pushState({ coachRoute: route }, '', '#' + route);
+  renderRoute();
+}
+function goBack(fallback) {
+  if (history.state && history.state.coachRoute) history.back();
+  else navigate(fallback || 'live');
+}
+function shell(content, badge = 'COACH-CONNECT') {
+  app.innerHTML = '<header class="top"><div class="brand"><span class="logo">↗</span><span>Coach-Connect</span></div><span class="tag header-tag">' + esc(badge) + '</span></header><main class="wrap">' + content + '<footer class="footer"><span>Coach-Connect · Rail passenger discovery</span><span>Live train details come from RailKit. Always follow railway announcements.</span></footer></main>';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+function pageHead(title, subtitle, backLabel = '← Back') {
+  return '<div class="page-head"><button type="button" class="back" id="page-back">' + esc(backLabel) + '</button><h1>' + esc(title) + '</h1><p>' + esc(subtitle) + '</p></div>';
+}
+function valueText(value, suffix = '') {
+  if (value === null || value === undefined || value === '') return 'Not provided';
+  return esc(value) + suffix;
+}
+function stationTitle(j) {
+  return j?.nextStation?.name || j?.nextStation?.code || 'Next station details';
+}
 function renderHome(error = '') {
-  shell('<section class="hero"><div><div class="eyebrow">Live railway information</div><h1>Find your train’s<br><em>next station.</em></h1><p>Enter a train number to fetch its current reported location, next halt, distance, delay, and latest status from RailKit.</p><div class="feature-strip"><span>↗ Live API data</span><span>◎ Current location</span><span>⌁ Next halt</span></div></div><div class="hero-illustration"><div class="orbit"><div class="train-tile"><div class="emoji">🚆</div><b>Live train tracker</b><small>Train number → Next station</small></div></div></div></section><div class="section-head"><div><h2>Track a train</h2><p>One train number. The latest status available from RailKit.</p></div></div><section class="panel tracker-panel"><form id="track-form"><div class="field"><label for="train-number">Train number</label><input id="train-number" name="trainNumber" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[0-9]{5}" placeholder="Enter 5-digit train number e.g. 12951" value="' + esc(lastTrainNumber) + '" required><small>We’ll use today’s date in Indian Standard Time. No GPS or coach details needed.</small></div><p id="form-error" class="error-text" role="alert">' + esc(error) + '</p><button id="track-button" class="btn primary" type="submit">⌁ Fetch live train status <span>→</span></button><div class="loading-bar hidden" id="loading" role="status"><span class="spinner"></span>Requesting live data from RailKit…</div></form></section>' + (lastJourney ? renderJourney(lastJourney) : '') );
+  shell('<section class="hero"><div><div class="eyebrow">Live railway information</div><h1>Your journey.<br><em>Your next stop.</em></h1><p>Track a train using live RailKit data, then explore station details and available stall listings for the next halt.</p><div class="feature-strip"><span>● Live status</span><span>◎ Current location</span><span>↗ Station discovery</span></div></div><div class="hero-illustration"><div class="orbit"><div class="train-tile"><div class="emoji">🚆</div><b>Live train tracker</b><small>Train number → Next station</small></div></div></div></section><div class="section-head"><div><h2>Track your train</h2><p>Enter a train number to request the latest status from RailKit.</p></div></div><section class="panel tracker-panel"><form id="track-form"><div class="field"><label for="train-number">Train number</label><input id="train-number" name="trainNumber" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[0-9]{5}" placeholder="Enter 5-digit train number" value="' + esc(lastTrainNumber) + '" required><small>One request per Track or Refresh action. No automatic polling.</small></div><p id="form-error" class="error-text" role="alert">' + esc(error) + '</p><button id="track-button" class="btn primary wide large-btn" type="submit">Fetch live train status <span>→</span></button><div class="loading-bar hidden" id="loading" role="status"><span class="spinner"></span>Requesting live data from RailKit…</div></form></section>' + (lastJourney ? renderJourney(lastJourney) : ''));
   document.getElementById('track-form').addEventListener('submit', onTrack);
+  const refresh = document.getElementById('refresh-button');
+  if (refresh) refresh.addEventListener('click', requestRefresh);
+  const nextBtn = document.getElementById('view-next-station');
+  if (nextBtn) nextBtn.addEventListener('click', () => navigate('next-station'));
 }
 function renderJourney(j) {
-  const liveText = j.live ? 'LIVE STATUS' : 'RAILKIT STATUS';
-  const liveClass = j.live ? 'tag live' : 'tag';
-  const sourceText = j.source?.name ? esc(j.source.name) + (j.source.code ? ' (' + esc(j.source.code) + ')' : '') : 'Not provided by RailKit';
-  const destText = j.destination?.name ? esc(j.destination.name) + (j.destination.code ? ' (' + esc(j.destination.code) + ')' : '') : 'Not provided by RailKit';
   const current = j.currentLocation || {};
   const next = j.nextStation || {};
-  const distance = next.distanceKm != null ? Number(next.distanceKm).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' km' : (current.distanceToNextStationKm != null ? Number(current.distanceToNextStationKm).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' km' : 'Not provided');
+  const distanceValue = next.distanceKm ?? current.distanceToNextStationKm;
   const delay = j.delayMinutes == null ? 'Not provided' : (j.delayMinutes > 0 ? j.delayMinutes + ' min late' : j.delayMinutes < 0 ? Math.abs(j.delayMinutes) + ' min early' : 'On time');
-  const updated = j.lastUpdatedAt || j.fetchedAt || '';
-  const updatedText = updated ? esc(updated) : 'Not provided by RailKit';
-  return '<section id="journey-result" class="journey-result"><div class="result-heading"><div><span class="' + liveClass + '">' + liveText + '</span><h2>' + esc(j.trainName) + '</h2><p>Train number ' + esc(j.trainNumber) + '</p></div><button type="button" class="btn outline" id="refresh-button">↻ Refresh</button></div><div class="route-summary"><div class="station-block"><small>Source</small><b>' + sourceText + '</b></div><span class="route-arrow">→</span><div class="station-block right"><small>Destination</small><b>' + destText + '</b></div></div><div class="next-stop-live"><div class="next-kicker">NEXT HALT · RAILKIT</div><h3>' + esc(next.name || 'Next station not returned') + '</h3><div class="station-code">' + esc(next.code || 'Station code unavailable') + '</div><div class="next-metrics"><div><small>Distance to halt</small><b>' + esc(distance) + '</b></div><div><small>Platform</small><b>' + esc(next.platform || 'Not provided') + '</b></div><div><small>Arrival time</small><b>' + esc(next.scheduledArrival || 'Not provided') + '</b></div></div></div><div class="section-head compact"><div><h2>Current train status</h2><p>Details returned by the live tracking service.</p></div></div><div class="live-details"><div class="data-row"><span>Current reported location</span><b>' + esc(current.name || 'Not provided by RailKit') + (current.code ? ' (' + esc(current.code) + ')' : '') + '</b></div><div class="data-row"><span>Movement status</span><b>' + esc(current.status || j.status || 'Not provided') + '</b></div><div class="data-row"><span>Delay</span><b class="' + (j.delayMinutes > 0 ? 'delay' : '') + '">' + esc(delay) + '</b></div><div class="data-row"><span>Train status text</span><b>' + esc(j.statusText || j.status || 'Not provided') + '</b></div><div class="data-row"><span>RailKit last updated</span><b>' + updatedText + '</b></div></div><p class="data-note">This is the latest response fetched from RailKit, not a guaranteed second-by-second GPS feed. Use Refresh to request new data.</p></section>';
+  const sourceText = j.source?.name ? esc(j.source.name) + (j.source.code ? ' (' + esc(j.source.code) + ')' : '') : 'Not provided';
+  const destText = j.destination?.name ? esc(j.destination.name) + (j.destination.code ? ' (' + esc(j.destination.code) + ')' : '') : 'Not provided';
+  const liveText = j.live ? 'LIVE STATUS' : 'RAILKIT STATUS';
+  return '<section id="journey-result" class="journey-result"><div class="result-heading"><div><span class="tag ' + (j.live ? 'live' : '') + '">' + liveText + '</span><h2 class="train-name">' + valueText(j.trainName) + '</h2><p class="train-number-label">Train number ' + valueText(j.trainNumber) + '</p></div><button type="button" class="btn outline large-btn" id="refresh-button">↻ Refresh</button></div><div class="route-summary"><div class="station-block"><small>Source</small><b>' + sourceText + '</b></div><span class="route-arrow">→</span><div class="station-block right"><small>Destination</small><b>' + destText + '</b></div></div><div class="next-stop-live"><div class="next-kicker">NEXT HALT · RAILKIT</div><h3>' + valueText(next.name || next.code) + '</h3><div class="station-code">' + valueText(next.code) + '</div><div class="next-metrics"><div><small>Distance to halt</small><b>' + (distanceValue == null ? 'Not provided' : esc(Number(distanceValue).toLocaleString(undefined, {maximumFractionDigits:1}) + ' km')) + '</b></div><div><small>Platform</small><b>' + valueText(next.platform) + '</b></div><div><small>Arrival time</small><b>' + valueText(next.scheduledArrival) + '</b></div></div></div><div class="section-head compact"><div><h2>Current train status</h2><p>Values below are taken from the latest API response.</p></div></div><div class="live-details"><div class="data-row"><span>Current reported location</span><b class="data-emphasis">' + valueText(current.name) + (current.code ? ' (' + esc(current.code) + ')' : '') + '</b></div><div class="data-row"><span>Movement status</span><b>' + valueText(current.status || j.status) + '</b></div><div class="data-row"><span>Delay</span><b class="' + (j.delayMinutes > 0 ? 'delay' : '') + '">' + esc(delay) + '</b></div><div class="data-row"><span>Train status text</span><b>' + valueText(j.statusText || j.status) + '</b></div><div class="data-row"><span>RailKit last updated</span><b>' + valueText(j.lastUpdatedAt || j.fetchedAt) + '</b></div></div><button type="button" id="view-next-station" class="btn green large-btn wide view-next-btn">View Next Station <span>→</span></button><p class="data-note">Live position and estimates may change. Select Refresh to fetch a new response.</p></section>';
 }
 async function onTrack(event) {
   event.preventDefault();
@@ -41,15 +66,14 @@ async function onTrack(event) {
     const data = await response.json();
     if (!response.ok || data.ok !== true || !data.journey) throw new Error(data.error || 'Live status was not returned for this train.');
     lastJourney = data.journey;
-    const result = document.createElement('div');
-    result.innerHTML = renderJourney(lastJourney);
-    document.querySelector('.tracker-panel').insertAdjacentElement('afterend', result.firstElementChild);
-    document.getElementById('refresh-button').addEventListener('click', () => requestRefresh());
+    renderHome();
   } catch (e) {
     error.textContent = e?.message || 'Could not fetch live train status. Try again.';
   } finally {
-    button.disabled = false;
-    loading.classList.add('hidden');
+    const activeButton = document.getElementById('track-button');
+    const activeLoading = document.getElementById('loading');
+    if (activeButton) activeButton.disabled = false;
+    if (activeLoading) activeLoading.classList.add('hidden');
   }
 }
 async function requestRefresh() {
@@ -57,19 +81,137 @@ async function requestRefresh() {
   const error = document.getElementById('form-error');
   const refresh = document.getElementById('refresh-button');
   if (refresh) { refresh.disabled = true; refresh.textContent = 'Fetching…'; }
-  error.textContent = '';
+  if (error) error.textContent = '';
   try {
     const response = await fetch('/api/journey', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trainNumber: lastTrainNumber }) });
     const data = await response.json();
     if (!response.ok || data.ok !== true || !data.journey) throw new Error(data.error || 'Live status was not returned.');
     lastJourney = data.journey;
-    const holder = document.createElement('div'); holder.innerHTML = renderJourney(lastJourney);
-    document.getElementById('journey-result')?.replaceWith(holder.firstElementChild);
-    document.getElementById('refresh-button').addEventListener('click', requestRefresh);
+    renderHome();
   } catch (e) {
-    error.textContent = e?.message || 'Could not refresh live status.';
-  } finally {
-    const b = document.getElementById('refresh-button'); if (b) { b.disabled = false; b.textContent = '↻ Refresh'; }
+    const errorNow = document.getElementById('form-error');
+    if (errorNow) errorNow.textContent = e?.message || 'Could not refresh live status.';
+    const buttonNow = document.getElementById('refresh-button');
+    if (buttonNow) { buttonNow.disabled = false; buttonNow.textContent = '↻ Refresh'; }
   }
 }
-renderHome();
+function renderNextStation() {
+  if (!lastJourney || !lastJourney.nextStation) {
+    shell(pageHead('Next station details', 'Track a train first to load the next station returned by RailKit.') + '<section class="panel empty"><div class="big">🚆</div><h3>No live journey loaded</h3><p>Return to train tracking and fetch live data before opening station details.</p><button class="btn green large-btn" id="empty-back">← Back to live tracking</button></section>', 'NEXT STATION');
+    document.getElementById('page-back').onclick = () => goBack('live');
+    document.getElementById('empty-back').onclick = () => navigate('live');
+    return;
+  }
+  const j = lastJourney, s = j.nextStation || {}, c = j.currentLocation || {};
+  const distance = s.distanceKm ?? c.distanceToNextStationKm;
+  const delay = j.delayMinutes == null ? null : (j.delayMinutes > 0 ? j.delayMinutes + ' min late' : j.delayMinutes < 0 ? Math.abs(j.delayMinutes) + ' min early' : 'On time');
+  const html = pageHead('Next station details', 'Station information from the latest live response for your train.') +
+    '<section class="station-detail-hero"><div class="station-detail-eyebrow">UPCOMING HALT</div><div class="station-code-large">' + valueText(s.code) + '</div><h2>' + valueText(s.name || s.code) + '</h2><div class="station-detail-route"><span>' + valueText(j.trainName) + '</span><span>Train ' + valueText(j.trainNumber) + '</span></div><div class="station-detail-grid"><div class="station-metric"><span>Estimated arrival</span><b>' + valueText(s.scheduledArrival) + '</b></div><div class="station-metric"><span>Distance</span><b>' + (distance == null ? 'Not provided' : esc(Number(distance).toLocaleString(undefined,{maximumFractionDigits:1}) + ' km')) + '</b></div><div class="station-metric"><span>Platform</span><b>' + valueText(s.platform) + '</b></div><div class="station-metric"><span>Current location</span><b>' + valueText(c.name) + (c.code ? ' (' + esc(c.code) + ')' : '') + '</b></div><div class="station-metric"><span>Movement status</span><b>' + valueText(c.status || j.status) + '</b></div><div class="station-metric"><span>Delay</span><b class="' + (j.delayMinutes > 0 ? 'delay' : '') + '">' + valueText(delay) + '</b></div></div></section><section class="panel station-detail-note"><div class="data-row"><span>Last updated by RailKit</span><b>' + valueText(j.lastUpdatedAt || j.fetchedAt) + '</b></div><p class="data-note">Station and train values are displayed from the existing backend response. Missing fields are left as “Not provided”.</p><button class="btn green wide large-btn" id="explore-stalls">Explore Stalls at This Station <span>→</span></button></section>';
+  shell(html, 'NEXT STATION');
+  document.getElementById('page-back').onclick = () => goBack('live');
+  document.getElementById('explore-stalls').onclick = () => navigate('station-stalls');
+}
+function stationCacheKey() {
+  const s = lastJourney?.nextStation || {};
+  return String(s.code || '').trim().toUpperCase() + '|' + String(s.name || '').trim().toUpperCase();
+}
+function stationQuery() {
+  const s = lastJourney?.nextStation || {};
+  return { stationKey: s.code || '', stationName: s.name || s.code || '' };
+}
+function getStalls() {
+  const key = stationCacheKey();
+  if (stallCache.has(key)) return stallCache.get(key);
+  const {stationKey, stationName} = stationQuery();
+  const promise = fetch('/api/stalls?stationKey=' + encodeURIComponent(stationKey) + '&stationName=' + encodeURIComponent(stationName))
+    .then(async response => {
+      const data = await response.json();
+      if (!response.ok || data.ok !== true) throw new Error(data.error || 'Could not load stall listings.');
+      return data.stalls || [];
+    });
+  stallCache.set(key, promise);
+  return promise;
+}
+function menuItems(stall) {
+  let menu = stall.menu_json ?? stall.menu ?? [];
+  if (typeof menu === 'string') { try { menu = JSON.parse(menu); } catch { menu = []; } }
+  if (!Array.isArray(menu)) menu = Array.isArray(menu?.items) ? menu.items : [];
+  return menu.map(item => typeof item === 'string' ? {name:item} : item).filter(Boolean);
+}
+function menuPreview(stall) {
+  const menu = menuItems(stall);
+  if (!menu.length) return 'Menu not provided';
+  return menu.slice(0,3).map(item => esc(item.name || item.item || item.title || 'Menu item')).join(' · ');
+}
+function stallDistance(stall) {
+  const value = stall.distance_km ?? stall.distanceKm ?? stall.distance;
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return 'Distance not provided';
+  return Number(value).toLocaleString(undefined,{maximumFractionDigits:2}) + ' km';
+}
+function renderStallCard(stall) {
+  const id = String(stall.id ?? '');
+  const category = stall.category || 'Category not provided';
+  const platform = stall.platform_label || stall.platform || stall.location || 'Location not provided';
+  const demo = stall.demo_label && !/^real|verified|live$/i.test(String(stall.demo_label)) ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '';
+  return '<article class="stall-card"><div class="stall-card-top"><div class="stall-icon">' + esc(stall.emoji || '🥪') + '</div><div class="stall-card-main"><div class="stall-category">' + esc(category) + '</div><h3>' + valueText(stall.name) + '</h3><p>' + esc(stall.description || 'Description not provided') + '</p>' + demo + '</div></div><div class="stall-facts"><div><span>Platform / location</span><b>' + esc(platform) + '</b></div><div><span>Distance</span><b>' + esc(stallDistance(stall)) + '</b></div><div><span>Menu</span><b>' + menuPreview(stall) + '</b></div></div><button class="btn outline large-btn wide view-stall-btn" data-stall-id="' + esc(id) + '">View Stall Details <span>→</span></button></article>';
+}
+function renderStationStalls() {
+  if (!lastJourney?.nextStation) {
+    shell(pageHead('Station stalls', 'A live next station is needed to filter stall listings.') + '<section class="panel empty"><div class="big">📍</div><h3>No station selected</h3><p>Track a train first, then explore stalls at the next station.</p><button class="btn green large-btn" id="empty-back">← Back to live tracking</button></section>', 'STATION STALLS');
+    document.getElementById('page-back').onclick = () => goBack('next-station');
+    document.getElementById('empty-back').onclick = () => navigate('live');
+    return;
+  }
+  const s = lastJourney.nextStation;
+  shell(pageHead('Stalls at ' + (s.name || s.code || 'your next station'), 'Only listings associated with this station are shown.') +
+    '<section class="station-stalls-heading"><div class="station-mini-code">' + valueText(s.code) + '</div><div><h2>' + valueText(s.name || s.code) + '</h2><p>Train ' + valueText(lastJourney.trainNumber) + ' · ' + valueText(lastJourney.trainName) + '</p></div></section><div id="stalls-content"><section class="panel loading-stalls"><span class="spinner"></span>Loading station listings…</section></div>', 'STATION STALLS');
+  document.getElementById('page-back').onclick = () => goBack('next-station');
+  getStalls().then(stalls => {
+    if (routeName() !== 'station-stalls') return;
+    stallsById = new Map(stalls.map(stall => [String(stall.id), stall]));
+    const host = document.getElementById('stalls-content');
+    if (!host) return;
+    if (!stalls.length) {
+      host.innerHTML = '<section class="panel empty"><div class="big">☕</div><h3>No stall listings yet</h3><p>There are currently no stall records associated with ' + esc(s.name || s.code || 'this station') + '. Listings for other stations are not shown here.</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section>';
+      document.getElementById('stalls-back-next').onclick = () => goBack('next-station');
+      return;
+    }
+    host.innerHTML = '<div class="stall-results-meta">' + stalls.length + ' listing' + (stalls.length === 1 ? '' : 's') + ' for this station</div><div class="station-stall-list">' + stalls.map(renderStallCard).join('') + '</div><p class="data-note">Listings marked Demo are sample records and are not verified vendors. Distances are shown only when present in the listing data.</p>';
+    host.querySelectorAll('.view-stall-btn').forEach(button => button.addEventListener('click', () => navigate('stall-details/' + encodeURIComponent(button.dataset.stallId))));
+  }).catch(error => {
+    if (routeName() !== 'station-stalls') return;
+    const host = document.getElementById('stalls-content');
+    if (host) host.innerHTML = '<section class="panel empty"><div class="big">⚠</div><h3>Could not load stalls</h3><p>' + esc(error.message || 'Please try again later.') + '</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section>';
+    const back = document.getElementById('stalls-back-next');
+    if (back) back.onclick = () => goBack('next-station');
+  });
+}
+function renderStallDetails(id) {
+  const stall = stallsById.get(String(id));
+  if (!stall) {
+    shell(pageHead('Stall details', 'Open a stall from the station listings to see its details.') + '<section class="panel empty"><div class="big">🥪</div><h3>Stall details unavailable</h3><p>Return to the selected station’s stall list and choose an available listing.</p><button class="btn green large-btn" id="details-back-list">← Back to station stalls</button></section>', 'STALL DETAILS');
+    document.getElementById('page-back').onclick = () => goBack('station-stalls');
+    document.getElementById('details-back-list').onclick = () => navigate('station-stalls');
+    return;
+  }
+  const menu = menuItems(stall);
+  const menuHtml = menu.length ? '<div class="detail-menu-list">' + menu.map(item => '<div class="detail-menu-item"><span>' + esc(item.name || item.item || item.title || 'Menu item') + '</span>' + (item.price !== undefined && item.price !== null && item.price !== '' ? '<b>' + esc(item.price) + '</b>' : '') + '</div>').join('') + '</div>' : '<div class="empty-menu">Menu details have not been provided for this stall.</div>';
+  const station = lastJourney?.nextStation || {};
+  const platform = stall.platform_label || stall.platform || stall.location || 'Location not provided';
+  const html = pageHead('Stall details', 'Listing information for the selected station.') +
+    '<section class="stall-detail-hero"><div class="stall-detail-icon">' + esc(stall.emoji || '🥪') + '</div><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h2>' + valueText(stall.name) + '</h2><p>' + esc(stall.description || 'Description not provided') + '</p>' + (stall.demo_label ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '') + '</section><section class="panel stall-detail-panel"><h3>Location at station</h3><div class="data-row"><span>Station</span><b>' + valueText(stall.station_name || station.name || station.code) + '</b></div><div class="data-row"><span>Station code</span><b>' + valueText(station.code) + '</b></div><div class="data-row"><span>Platform / location</span><b>' + esc(platform) + '</b></div><div class="data-row"><span>Distance</span><b>' + esc(stallDistance(stall)) + '</b></div><h3 class="menu-heading">Menu</h3>' + menuHtml + '<div class="directions-note"><b>Finding this stall</b><p>Use the platform/location information above. Walking directions are not provided unless verified location or distance data is available in this listing.</p></div><button class="btn green wide large-btn" id="details-back-list">← Back to station stalls</button></section>';
+  shell(html, 'STALL DETAILS');
+  document.getElementById('page-back').onclick = () => goBack('station-stalls');
+  document.getElementById('details-back-list').onclick = () => goBack('station-stalls');
+}
+function renderRoute() {
+  const parts = routeParts();
+  const route = parts[0] || 'live';
+  if (route === 'next-station') return renderNextStation();
+  if (route === 'station-stalls') return renderStationStalls();
+  if (route === 'stall-details') return renderStallDetails(decodeURIComponent(parts.slice(1).join('/') || ''));
+  renderHome();
+}
+window.addEventListener('popstate', renderRoute);
+window.addEventListener('hashchange', renderRoute);
+renderRoute();
