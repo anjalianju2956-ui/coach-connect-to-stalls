@@ -4,6 +4,7 @@ let lastTrainNumber = '';
 let lastJourney = null;
 let stallCache = new Map();
 let stallsById = new Map();
+let selectedStallCategory = 'all';
 
 function routeName() { return (window.location.hash || '#live').slice(1).split('/')[0] || 'live'; }
 function routeParts() { return (window.location.hash || '#live').slice(1).split('/'); }
@@ -31,12 +32,13 @@ function stationTitle(j) {
   return j?.nextStation?.name || j?.nextStation?.code || 'Next station details';
 }
 function renderHome(error = '') {
-  shell('<section class="hero"><div><div class="eyebrow">Live railway information</div><h1>Your journey.<br><em>Your next stop.</em></h1><p>Track a train using live RailKit data, then explore station details and available stall listings for the next halt.</p><div class="feature-strip"><span>● Live status</span><span>◎ Current location</span><span>↗ Station discovery</span></div></div><div class="hero-illustration"><div class="orbit"><div class="train-tile"><div class="emoji">🚆</div><b>Live train tracker</b><small>Train number → Next station</small></div></div></div></section><div class="section-head"><div><h2>Track your train</h2><p>Enter a train number to request the latest status from RailKit.</p></div></div><section class="panel tracker-panel"><form id="track-form"><div class="field"><label for="train-number">Train number</label><input id="train-number" name="trainNumber" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[0-9]{5}" placeholder="Enter 5-digit train number" value="' + esc(lastTrainNumber) + '" required><small>One request per Track or Refresh action. No automatic polling.</small></div><p id="form-error" class="error-text" role="alert">' + esc(error) + '</p><button id="track-button" class="btn primary wide large-btn" type="submit">Fetch live train status <span>→</span></button><div class="loading-bar hidden" id="loading" role="status"><span class="spinner"></span>Requesting live data from RailKit…</div></form></section>' + (lastJourney ? renderJourney(lastJourney) : ''));
+  shell('<section class="hero"><div><div class="eyebrow">Your rail journey, made easier</div><h1>Your journey.<br><em>Your next stop.</em></h1><p>Check your train’s latest status, see the next halt, and discover food and refreshment stalls at that station.</p><div class="feature-strip"><span>● Live train status</span><span>◎ Next halt details</span><span>↗ Station stalls</span></div></div><div class="hero-illustration"><div class="orbit"><div class="train-tile"><div class="emoji">🚆</div><b>Journey companion</b><small>Train status → Station stalls</small></div></div></div></section><div class="section-head"><div><h2>Track your train</h2><p>Enter a train number to view the latest status available from RailKit.</p></div></div><section class="panel tracker-panel"><form id="track-form"><div class="field"><label for="train-number">Train number</label><input id="train-number" name="trainNumber" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[0-9]{5}" placeholder="Enter 5-digit train number" value="' + esc(lastTrainNumber) + '" required></div><p id="form-error" class="error-text" role="alert">' + esc(error) + '</p><button id="track-button" class="btn primary wide large-btn" type="submit">Fetch live train status <span>→</span></button></form></section>' + (lastJourney ? renderJourney(lastJourney) + renderDiscoverSection() : ''));
   document.getElementById('track-form').addEventListener('submit', onTrack);
   const refresh = document.getElementById('refresh-button');
   if (refresh) refresh.addEventListener('click', requestRefresh);
   const nextBtn = document.getElementById('view-next-station');
   if (nextBtn) nextBtn.addEventListener('click', () => navigate('next-station'));
+  if (lastJourney?.nextStation) loadHomeDiscovery();
 }
 function renderJourney(j) {
   const current = j.currentLocation || {};
@@ -53,34 +55,34 @@ async function onTrack(event) {
   const input = document.getElementById('train-number');
   const error = document.getElementById('form-error');
   const button = document.getElementById('track-button');
-  const loading = document.getElementById('loading');
+  // The UI intentionally has no separate tracking-progress card.
   const trainNumber = input.value.trim();
   if (!/^\d{5}$/.test(trainNumber)) { error.textContent = 'Enter a valid 5-digit train number.'; return; }
   lastTrainNumber = trainNumber;
   error.textContent = '';
   button.disabled = true;
-  loading.classList.remove('hidden');
+  // Keep the screen free of technical progress indicators.
   document.getElementById('journey-result')?.remove();
   try {
     const response = await fetch('/api/journey', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trainNumber }) });
     const data = await response.json();
     if (!response.ok || data.ok !== true || !data.journey) throw new Error(data.error || 'Live status was not returned for this train.');
+    if ((lastJourney?.nextStation?.code || lastJourney?.nextStation?.name) !== (data.journey.nextStation?.code || data.journey.nextStation?.name)) selectedStallCategory = 'all';
+    if ((lastJourney?.nextStation?.code || lastJourney?.nextStation?.name) !== (data.journey.nextStation?.code || data.journey.nextStation?.name)) selectedStallCategory = 'all';
     lastJourney = data.journey;
     renderHome();
   } catch (e) {
     error.textContent = e?.message || 'Could not fetch live train status. Try again.';
   } finally {
     const activeButton = document.getElementById('track-button');
-    const activeLoading = document.getElementById('loading');
     if (activeButton) activeButton.disabled = false;
-    if (activeLoading) activeLoading.classList.add('hidden');
   }
 }
 async function requestRefresh() {
   if (!lastTrainNumber) return;
   const error = document.getElementById('form-error');
   const refresh = document.getElementById('refresh-button');
-  if (refresh) { refresh.disabled = true; refresh.textContent = 'Fetching…'; }
+  if (refresh) refresh.disabled = true;
   if (error) error.textContent = '';
   try {
     const response = await fetch('/api/journey', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trainNumber: lastTrainNumber }) });
@@ -92,7 +94,7 @@ async function requestRefresh() {
     const errorNow = document.getElementById('form-error');
     if (errorNow) errorNow.textContent = e?.message || 'Could not refresh live status.';
     const buttonNow = document.getElementById('refresh-button');
-    if (buttonNow) { buttonNow.disabled = false; buttonNow.textContent = '↻ Refresh'; }
+    if (buttonNow) buttonNow.disabled = false;
   }
 }
 function renderNextStation() {
@@ -156,6 +158,96 @@ function renderStallCard(stall) {
   const demo = stall.demo_label && !/^(real|verified|live)$/i.test(String(stall.demo_label).trim()) ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '';
   return '<article class="stall-card"><div class="stall-card-top"><div class="stall-icon">' + esc(stall.emoji || '🥪') + '</div><div class="stall-card-main"><div class="stall-category">' + esc(category) + '</div><h3>' + valueText(stall.name) + '</h3><p>' + esc(stall.description || 'Description not provided') + '</p>' + demo + '</div></div><div class="stall-facts"><div><span>Platform / location</span><b>' + esc(platform) + '</b></div><div><span>Distance</span><b>' + esc(stallDistance(stall)) + '</b></div><div><span>Menu</span><b>' + menuPreview(stall) + '</b></div></div><button class="btn outline large-btn wide view-stall-btn" data-stall-id="' + esc(id) + '">View Stall Details <span>→</span></button></article>';
 }
+const STALL_CATEGORIES = [
+  { key: 'food', label: 'Food & Meals', icon: '🍛', hint: 'Meals and filling favourites' },
+  { key: 'beverages', label: 'Tea & Beverages', icon: '☕', hint: 'Tea, coffee and drinks' },
+  { key: 'snacks', label: 'Snacks & Quick Bites', icon: '🥪', hint: 'Quick bites for the journey' }
+];
+function stallCategoryKey(stall) {
+  const value = String(stall.category || '').toLowerCase();
+  if (/food|meal|breakfast|lunch|dinner|restaurant|thali/.test(value)) return 'food';
+  if (/tea|beverage|drink|coffee|juice|chai/.test(value)) return 'beverages';
+  if (/snack|quick.?bite|bite|fast.?food|bakery|sweet|sweets/.test(value)) return 'snacks';
+  return '';
+}
+function filteredStalls(stalls) {
+  return selectedStallCategory === 'all' ? stalls : stalls.filter(stall => stallCategoryKey(stall) === selectedStallCategory);
+}
+function categoryTiles(stalls) {
+  const supported = STALL_CATEGORIES.filter(category => stalls.some(stall => stallCategoryKey(stall) === category.key));
+  if (!stalls.length) return '<p class="category-unavailable">Category filters will appear when stall listings are available.</p>';
+  const allTile = '<button type="button" class="category-tile ' + (selectedStallCategory === 'all' ? 'active' : '') + '" data-category="all" aria-pressed="' + (selectedStallCategory === 'all') + '"><span class="category-emoji">✨</span><span class="category-tile-copy"><b>All stalls</b><small>' + stalls.length + ' available listing' + (stalls.length === 1 ? '' : 's') + '</small></span><span class="category-arrow">↗</span></button>';
+  const categoryButtons = supported.map(category => {
+    const count = stalls.filter(stall => stallCategoryKey(stall) === category.key).length;
+    return '<button type="button" class="category-tile ' + (selectedStallCategory === category.key ? 'active' : '') + '" data-category="' + category.key + '" aria-pressed="' + (selectedStallCategory === category.key) + '"><span class="category-emoji">' + category.icon + '</span><span class="category-tile-copy"><b>' + category.label + '</b><small>' + count + ' available listing' + (count === 1 ? '' : 's') + '</small></span><span class="category-arrow">↗</span></button>';
+  }).join('');
+  return '<div class="category-grid">' + allTile + categoryButtons + '</div>';
+}
+function renderPreviewCard(stall) {
+  const id = String(stall.id ?? '');
+  const platform = stall.platform_label || stall.platform || stall.location || 'Location not provided';
+  const demo = stall.demo_label && !/^(real|verified|live)$/i.test(String(stall.demo_label).trim()) ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '';
+  return '<article class="preview-stall-card"><div class="preview-stall-top"><span class="preview-stall-icon">' + esc(stall.emoji || '🥪') + '</span><div class="preview-stall-title"><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h3>' + valueText(stall.name) + '</h3></div></div><p class="preview-menu"><span>Menu highlights</span><b>' + menuPreview(stall) + '</b></p><p class="preview-location"><span>Platform / location</span><b>' + esc(platform) + '</b></p>' + demo + '<button class="btn outline wide large-btn preview-view-btn" data-stall-id="' + esc(id) + '">View Stall <span>→</span></button></article>';
+}
+function renderDiscoverSection() {
+  const station = lastJourney?.nextStation || {};
+  if (!station.name && !station.code) return '';
+  return '<section class="discover-section"><div class="discover-banner"><div class="discover-banner-copy"><span class="discover-eyebrow">A LITTLE STOP, A LOT TO DISCOVER</span><h2>Discover Stalls at Your Next Station</h2><p>Explore food, refreshments and local favourites before you arrive.</p><div class="discover-station-pill">🚉 Your next stop: <b>' + valueText(station.name || station.code) + (station.code ? ' (' + esc(station.code) + ')' : '') + '</b></div></div><div class="discover-art" aria-hidden="true"><span class="art-sun"></span><span class="art-track"></span><span class="art-train">🚆</span><span class="art-cup">☕</span><span class="art-snack">🥪</span></div></div><div class="discover-controls"><div><h3>Find your kind of stop</h3><p>Categories appear when matching stall listings are available.</p></div><div id="home-category-tiles"></div></div><div id="home-stall-previews" class="preview-stall-grid"></div><div class="discover-cta-row"><p id="home-discover-note">Explore available listings associated with this next station.</p><button type="button" id="explore-station-stalls" class="btn green large-btn">Explore Station Stalls <span>→</span></button></div></section>';
+}
+function wireCategoryTiles(host, stalls, target) {
+  if (!host) return;
+  host.innerHTML = categoryTiles(stalls);
+  host.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => {
+    selectedStallCategory = button.dataset.category;
+    if (target === 'home') updateHomeDiscovery(stalls);
+    else updateStationStalls(stalls);
+  }));
+}
+function updateHomeDiscovery(stalls) {
+  stallsById = new Map(stalls.map(stall => [String(stall.id), stall]));
+  wireCategoryTiles(document.getElementById('home-category-tiles'), stalls, 'home');
+  const host = document.getElementById('home-stall-previews');
+  const note = document.getElementById('home-discover-note');
+  if (!host) return;
+  const filtered = filteredStalls(stalls);
+  if (!filtered.length) {
+    host.innerHTML = '<div class="discover-empty"><span>☕</span><h3>' + (stalls.length ? 'No stalls in this category yet' : 'No stall listings yet') + '</h3><p>' + (stalls.length ? 'Try another category to see available listings at this station.' : 'There are no stall records associated with ' + esc(stationTitle(lastJourney)) + ' yet. Check back when listings are added.') + '</p></div>';
+    if (note) note.textContent = stalls.length ? 'Choose another category or explore the full station listing.' : 'Stall listings for this station are not available yet.';
+    return;
+  }
+  host.innerHTML = filtered.slice(0,3).map(renderPreviewCard).join('');
+  host.querySelectorAll('.preview-view-btn').forEach(button => button.addEventListener('click', () => navigate('stall-details/' + encodeURIComponent(button.dataset.stallId))));
+  if (note) note.textContent = filtered.length > 3 ? 'Showing 3 of ' + filtered.length + ' matching listings.' : filtered.length + ' matching listing' + (filtered.length === 1 ? '' : 's') + ' at this station.';
+}
+function loadHomeDiscovery() {
+  const button = document.getElementById('explore-station-stalls');
+  if (button) button.onclick = () => navigate('station-stalls');
+  getStalls().then(stalls => {
+    if (routeName() !== 'live') return;
+    updateHomeDiscovery(stalls);
+  }).catch(() => {
+    const host = document.getElementById('home-stall-previews');
+    if (host) host.innerHTML = '<div class="discover-empty"><span>☕</span><h3>Stall listings are unavailable right now</h3><p>You can still open the station stall page and try again.</p></div>';
+    const note = document.getElementById('home-discover-note');
+    if (note) note.textContent = 'Station stall listings could not be loaded.';
+  });
+}
+
+function updateStationStalls(stalls) {
+  stallsById = new Map(stalls.map(stall => [String(stall.id), stall]));
+  wireCategoryTiles(document.getElementById('stall-category-filters'), stalls, 'list');
+  const host = document.getElementById('stalls-content');
+  if (!host) return;
+  const filtered = filteredStalls(stalls);
+  if (!filtered.length) {
+    host.innerHTML = '<section class="panel empty"><div class="big">☕</div><h3>' + (stalls.length ? 'No stalls in this category yet' : 'No stall listings yet') + '</h3><p>' + (stalls.length ? 'Try another category to see available listings at ' + esc(stationTitle(lastJourney)) + '.' : 'There are currently no stall records associated with ' + esc(stationTitle(lastJourney)) + '. Listings for other stations are not shown here.') + '</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section>';
+    document.getElementById('stalls-back-next').onclick = () => goBack('next-station');
+    return;
+  }
+  host.innerHTML = '<div class="stall-results-meta">' + filtered.length + ' matching listing' + (filtered.length === 1 ? '' : 's') + ' for this station</div><div class="station-stall-list">' + filtered.map(renderStallCard).join('') + '</div><p class="data-note">Listings marked Demo are sample records and are not verified vendors. Distances are shown only when present in the listing data.</p>';
+  host.querySelectorAll('.view-stall-btn').forEach(button => button.addEventListener('click', () => navigate('stall-details/' + encodeURIComponent(button.dataset.stallId))));
+}
+
 function renderStationStalls() {
   if (!lastJourney?.nextStation) {
     shell(pageHead('Station stalls', 'A live next station is needed to filter stall listings.') + '<section class="panel empty"><div class="big">📍</div><h3>No station selected</h3><p>Track a train first, then explore stalls at the next station.</p><button class="btn green large-btn" id="empty-back">← Back to live tracking</button></section>', 'STATION STALLS');
@@ -165,20 +257,11 @@ function renderStationStalls() {
   }
   const s = lastJourney.nextStation;
   shell(pageHead('Stalls at ' + (s.name || s.code || 'your next station'), 'Only listings associated with this station are shown.') +
-    '<section class="station-stalls-heading"><div class="station-mini-code">' + valueText(s.code) + '</div><div><h2>' + valueText(s.name || s.code) + '</h2><p>Train ' + valueText(lastJourney.trainNumber) + ' · ' + valueText(lastJourney.trainName) + '</p></div></section><div id="stalls-content"><section class="panel loading-stalls"><span class="spinner"></span>Loading station listings…</section></div>', 'STATION STALLS');
+    '<section class="station-stalls-heading"><div class="station-mini-code">' + valueText(s.code) + '</div><div><h2>' + valueText(s.name || s.code) + '</h2><p>Train ' + valueText(lastJourney.trainNumber) + ' · ' + valueText(lastJourney.trainName) + '</p></div></section><section class="listing-filter-panel"><h3>Browse by category</h3><p>Choose a category to filter the actual listings for this station.</p><div id="stall-category-filters"></div></section><div id="stalls-content"></div>', 'STATION STALLS');
   document.getElementById('page-back').onclick = () => goBack('next-station');
   getStalls().then(stalls => {
     if (routeName() !== 'station-stalls') return;
-    stallsById = new Map(stalls.map(stall => [String(stall.id), stall]));
-    const host = document.getElementById('stalls-content');
-    if (!host) return;
-    if (!stalls.length) {
-      host.innerHTML = '<section class="panel empty"><div class="big">☕</div><h3>No stall listings yet</h3><p>There are currently no stall records associated with ' + esc(s.name || s.code || 'this station') + '. Listings for other stations are not shown here.</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section>';
-      document.getElementById('stalls-back-next').onclick = () => goBack('next-station');
-      return;
-    }
-    host.innerHTML = '<div class="stall-results-meta">' + stalls.length + ' listing' + (stalls.length === 1 ? '' : 's') + ' for this station</div><div class="station-stall-list">' + stalls.map(renderStallCard).join('') + '</div><p class="data-note">Listings marked Demo are sample records and are not verified vendors. Distances are shown only when present in the listing data.</p>';
-    host.querySelectorAll('.view-stall-btn').forEach(button => button.addEventListener('click', () => navigate('stall-details/' + encodeURIComponent(button.dataset.stallId))));
+    updateStationStalls(stalls);
   }).catch(error => {
     if (routeName() !== 'station-stalls') return;
     const host = document.getElementById('stalls-content');
