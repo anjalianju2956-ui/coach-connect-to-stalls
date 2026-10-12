@@ -1,7 +1,7 @@
 const root=document.getElementById('vendor-app');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let profile=null, stalls=[], editingId='';
-let stallSubmitting=false, stallCreateRequestId=null;
+let stallSubmitting=false, stallCreateRequestId=(()=>{try{return sessionStorage.getItem('ccVendorStallCreateRequestId')}catch{return null}})();
 function opts(method,body){return{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}}
 async function api(url,options={}){const r=await fetch(url,options);let d={};try{d=await r.json()}catch{}if(!r.ok||d.ok!==true)throw new Error(d.error||(r.status===401?'Sign in to manage your stalls.':'Request failed.'));return d}
 function menuOf(s){let m=s.menu_json??s.menu??[];if(typeof m==='string'){try{m=JSON.parse(m)}catch{m=[]}}return Array.isArray(m)?m:[]}
@@ -23,10 +23,10 @@ const sf=document.getElementById('stall-form');if(sf)sf.onsubmit=async e=>{
   const originalLabel=submitButton?.textContent||'Save stall';
   if(submitButton){submitButton.disabled=true;submitButton.textContent=id?'Saving…':'Registering…'}
   const payload={name:f.get('name'),category:f.get('category'),stationName:f.get('stationName'),stationCode:f.get('stationCode'),platformLabel:f.get('platformLabel'),coachLocation:f.get('coachLocation'),description:f.get('description'),directions:f.get('directions'),latitude:f.get('latitude'),longitude:f.get('longitude'),stallStatus:f.get('stallStatus'),publicationStatus:f.get('publicationStatus'),menuItems:existing?menuOf(existing):[{name:f.get('menuName'),price:f.get('menuPrice'),stock_status:f.get('menuStock')}]};
-  if(!id){if(!stallCreateRequestId)stallCreateRequestId=crypto.randomUUID();payload.requestId=stallCreateRequestId}
+  if(!id){if(!stallCreateRequestId){stallCreateRequestId=crypto.randomUUID();try{sessionStorage.setItem('ccVendorStallCreateRequestId',stallCreateRequestId)}catch{}}payload.requestId=stallCreateRequestId}
   try{
     await api('/api/vendor/stalls',opts(id?'PUT':'POST',id?{...payload,id}:payload));
-    if(!id)stallCreateRequestId=null;
+    if(!id){stallCreateRequestId=null;try{sessionStorage.removeItem('ccVendorStallCreateRequestId')}catch{}}
     editingId='';
     await load();
     location.hash='#my-stalls';
@@ -42,5 +42,5 @@ document.querySelectorAll('[data-menu-delete]').forEach(b=>b.onclick=async()=>{i
 const out=document.getElementById('sign-out');if(out)out.onclick=async()=>{try{await window.hatchable.auth.signOut()}finally{profile=null;stalls=[];signIn()}};
 }
 function draw(){if(!profile){profileForm();return}const list=stalls.length?stalls.map(stallCard).join(''):'<div class="v-empty">No stalls yet. Use the registration form to add your first stall.</div>';frame('Good to see you, '+profile.vendor_name,'Manage your stall listings, menu prices, in-stock status and station location from one workspace.','<section class="v-panel"><div class="v-stall-head"><div><span class="v-pill">SIGNED IN VENDOR</span><h2>'+esc(profile.vendor_name)+'</h2><p class="v-muted">'+esc(profile.contact)+'</p></div><button id="sign-out" class="v-btn alt">Log out</button></div><form id="profile-edit"><div class="v-form-grid"><div class="v-field"><label>Business name</label><input name="vendorName" required minlength="2" maxlength="120" value="'+esc(profile.vendor_name)+'"></div><div class="v-field"><label>Contact</label><input name="contact" required minlength="7" maxlength="80" value="'+esc(profile.contact)+'"></div></div><div class="v-actions"><button class="v-btn alt" type="submit">Update profile</button></div></form></section><div style="height:18px"></div>'+stallForm()+'<div id="menu-management"></div><section class="v-panel" id="my-stalls" style="margin-top:20px"><h2>My Stalls <span class="v-pill">'+stalls.length+'</span></h2><p class="v-muted">Only stalls owned by your signed-in account appear here. Passenger listings update on the next fetch or refresh.</p>'+list+'</section>');bind()}
-async function load(){if(!window.hatchable?.auth){signIn();return}try{const session=await window.hatchable.auth.getSession();if(!session?.user){signIn();return}const p=await api('/api/vendor/profile');profile=p.profile;if(!profile){profileForm();return}const s=await api('/api/vendor/stalls');stalls=uniqueStalls(s.stalls);draw()}catch(e){frame('Vendor workspace unavailable','We could not load the shared vendor records. Please retry.','<section class="v-panel"><p id="v-message" class="v-message">'+esc(e.message)+'</p><div class="v-actions"><button class="v-btn" id="retry">Try again</button><a class="v-btn alt" href="/login?next=%2Fvendor.html">Sign in</a></div></section>');document.getElementById('retry').onclick=load}}
+async function load(){if(!window.hatchable?.auth){signIn();return}try{const session=await window.hatchable.auth.getSession();if(!session?.user){signIn();return}const p=await api('/api/vendor/profile');profile=p.profile;if(!profile){profileForm();return}const s=await api('/api/vendor/stalls');stalls=uniqueStalls(s.stalls);if(stallCreateRequestId&&stalls.some(x=>String(x.create_request_id||'')===stallCreateRequestId)){stallCreateRequestId=null;try{sessionStorage.removeItem('ccVendorStallCreateRequestId')}catch{}}draw()}catch(e){frame('Vendor workspace unavailable','We could not load the shared vendor records. Please retry.','<section class="v-panel"><p id="v-message" class="v-message">'+esc(e.message)+'</p><div class="v-actions"><button class="v-btn" id="retry">Try again</button><a class="v-btn alt" href="/login?next=%2Fvendor.html">Sign in</a></div></section>');document.getElementById('retry').onclick=load}}
 load();

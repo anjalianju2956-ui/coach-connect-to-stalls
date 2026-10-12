@@ -71,7 +71,7 @@ export default async function (req, res) {
       const result = await db.query(
         `SELECT id, name, category, station_key, station_name, platform_label, description,
                 demo_label, menu_json, emoji, is_active, vendor_name, vendor_contact,
-                coach_location, directions, latitude, longitude, stall_status, publication_status, created_at, updated_at
+                coach_location, directions, latitude, longitude, stall_status, publication_status, create_request_id, created_at, updated_at
          FROM passenger_stalls WHERE owner_user_id = $1 ORDER BY updated_at DESC, created_at DESC LIMIT 100`,
         [userId]
       );
