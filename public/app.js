@@ -128,7 +128,8 @@ function getStalls() {
       const data = await response.json();
       if (!response.ok || data.ok !== true) throw new Error(data.error || 'Could not load stall listings.');
       return data.stalls || [];
-    });
+    })
+    .catch(error => { stallCache.delete(key); throw error; });
   stallCache.set(key, promise);
   return promise;
 }
@@ -152,7 +153,7 @@ function renderStallCard(stall) {
   const id = String(stall.id ?? '');
   const category = stall.category || 'Category not provided';
   const platform = stall.platform_label || stall.platform || stall.location || 'Location not provided';
-  const demo = stall.demo_label && !/^real|verified|live$/i.test(String(stall.demo_label)) ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '';
+  const demo = stall.demo_label && !/^(real|verified|live)$/i.test(String(stall.demo_label).trim()) ? '<span class="demo-pill">' + esc(stall.demo_label) + '</span>' : '';
   return '<article class="stall-card"><div class="stall-card-top"><div class="stall-icon">' + esc(stall.emoji || '🥪') + '</div><div class="stall-card-main"><div class="stall-category">' + esc(category) + '</div><h3>' + valueText(stall.name) + '</h3><p>' + esc(stall.description || 'Description not provided') + '</p>' + demo + '</div></div><div class="stall-facts"><div><span>Platform / location</span><b>' + esc(platform) + '</b></div><div><span>Distance</span><b>' + esc(stallDistance(stall)) + '</b></div><div><span>Menu</span><b>' + menuPreview(stall) + '</b></div></div><button class="btn outline large-btn wide view-stall-btn" data-stall-id="' + esc(id) + '">View Stall Details <span>→</span></button></article>';
 }
 function renderStationStalls() {
