@@ -78,6 +78,10 @@ export default async function (req, res) {
       return res.json({ ok: true, stalls: result.rows });
     }
     if (req.method === 'POST') {
+      const requestId = clean(req.body?.requestId ?? req.body?.request_id, 100);
+      if (!/^[A-Za-z0-9_-]{8,100}$/.test(requestId)) {
+        throw new ValidationError('A valid registration request ID is required. Refresh the form and try again.');
+      }
       const fields = normalizeFields(req.body, profile);
       const menu = normalizeMenu(req.body?.menuItems ?? req.body?.menu_json);
       if (fields.publication_status === 'published' && !menu.length) throw new ValidationError('Add at least one menu item before publishing.');
@@ -85,17 +89,27 @@ export default async function (req, res) {
       const result = await db.query(
         `INSERT INTO passenger_stalls
           (id, name, category, station_key, station_name, platform_label, description, demo_label,
-           menu_json, emoji, is_active, owner_user_id, vendor_name, vendor_contact, coach_location,
+           menu_json, emoji, is_active, owner_user_id, create_request_id, vendor_name, vendor_contact, coach_location,
            directions, latitude, longitude, stall_status, publication_status, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8::jsonb,'🥪',TRUE,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8::jsonb,'🥪',TRUE,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+         ON CONFLICT (owner_user_id, create_request_id) WHERE create_request_id IS NOT NULL DO NOTHING
          RETURNING id, name, category, station_key, station_name, platform_label, description,
                    menu_json, emoji, is_active, vendor_name, vendor_contact, coach_location,
                    directions, latitude, longitude, stall_status, publication_status, created_at, updated_at`,
         [id, fields.name, fields.category, fields.station_key, fields.station_name, fields.platform_label,
-         fields.description, JSON.stringify(menu), userId, fields.vendor_name, fields.vendor_contact,
+         fields.description, JSON.stringify(menu), userId, requestId, fields.vendor_name, fields.vendor_contact,
          fields.coach_location, fields.directions, fields.latitude, fields.longitude, fields.stall_status, fields.publication_status]
       );
-      return res.status(201).json({ ok: true, stall: result.rows[0] });
+      if (result.rows[0]) return res.status(201).json({ ok: true, stall: result.rows[0], duplicateRequest: false });
+      const prior = await db.query(
+        `SELECT id, name, category, station_key, station_name, platform_label, description,
+                menu_json, emoji, is_active, vendor_name, vendor_contact, coach_location,
+                directions, latitude, longitude, stall_status, publication_status, created_at, updated_at
+         FROM passenger_stalls WHERE owner_user_id = $1 AND create_request_id = $2 LIMIT 1`,
+        [userId, requestId]
+      );
+      if (!prior.rows[0]) throw new Error('Idempotent stall request completed without a readable record.');
+      return res.status(200).json({ ok: true, stall: prior.rows[0], duplicateRequest: true });
     }
     const stallId = clean(req.body?.id, 100);
     if (!stallId) return res.status(400).json({ ok: false, error: 'A stall ID is required.' });
