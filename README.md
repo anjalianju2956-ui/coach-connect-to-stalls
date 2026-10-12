@@ -1,3 +1,5 @@
+[![Deploy to Hatchable](https://hatchable.com/deploy-button.svg)](https://hatchable.com/deploy?repo=https://github.com/anjalianju2956-ui/coach-connect-to-stalls)
+
 # Coach-Connect — Live Train Next-Halt Tracker
 
 This version is intentionally limited to live train status. Enter a 5-digit train number to fetch the current reported location, next halt, distance, delay, and train details from RailKit. The app does not request GPS, coach number, stall data, or location permissions.
