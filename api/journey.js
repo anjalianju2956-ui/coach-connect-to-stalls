@@ -101,7 +101,7 @@ export default async function(req, res) {
   }
 
   const date = indiaDate();
-  const monthKey = indiaMonth();
+  const monthKey = date.slice(0, 7);
   // A fresh cached response costs no RailKit request. Cache is intentionally short-lived for live status.
   const cachedResult = await db.query(
     "SELECT response_json FROM train_lookup_cache WHERE train_number=$1 AND service_date=$2 AND fetched_at > NOW() - INTERVAL '2 minutes' LIMIT 1",

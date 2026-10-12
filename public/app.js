@@ -282,7 +282,7 @@ function updateStationStalls(stalls) {
     return;
   }
   if (matches.length) {
-    html += '<section class="stall-match-section"><h3>Stalls on Expected Platform ' + esc(lastJourney.nextStation.platform) + '</h3><p class="data-note">Platform labels match the platform reported by the live train API. Coach-area proximity and distance are not verified because no trusted station-layout mapping is configured.</p><div class="station-stall-list">' + matches.map(stall => renderStallCard(stall, true)).join('') + '</div></section>';
+    html += '<section class="stall-match-section"><h3>Stalls on Expected Platform ' + esc(lastJourney.nextStation.platform) + '</h3><p class="data-note">The vendor-listed stall platform matches the Expected Platform reported by the live train API; the exact physical stall position is not verified. Coach-area proximity and distance are not verified because no trusted station-layout mapping is configured.</p><div class="station-stall-list">' + matches.map(stall => renderStallCard(stall, true)).join('') + '</div></section>';
   }
   if (others.length) {
     const reason = !expected
