@@ -36,8 +36,8 @@ function valueText(value, suffix = '') {
 }
 function expectedPlatform(value) {
   return value === null || value === undefined || String(value).trim() === ''
-    ? 'Platform information not available yet'
-    : esc(String(value).trim());
+    ? 'Unconfirmed — not provided by the live source'
+    : esc(String(value).trim()) + (lastJourney?.nextStation?.platformSource ? ' · ' + esc(lastJourney.nextStation.platformSource) : ' · source not specified');
 }
 function coachLabel() {
   return lastCoachNumber ? 'Coach ' + esc(lastCoachNumber) : 'Coach not provided';
@@ -191,18 +191,27 @@ function stallDistance(stall) {
   if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return 'Distance not provided';
   return Number(value).toLocaleString(undefined,{maximumFractionDigits:2}) + ' km';
 }
-function renderStallCard(stall) {
+function normalizedPlatform(value) {
+  return String(value || '').trim().toUpperCase().replace(/^PLATFORM\s*/, '').replace(/^PF\s*/, '').replace(/\s+/g, '');
+}
+function sameSelectedStation(stall) {
+  const next = lastJourney?.nextStation || {};
+  const code = String(next.code || '').trim().toUpperCase();
+  if (code) return String(stall.station_key || '').trim().toUpperCase() === code;
+  const name = String(next.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  return !!name && String(stall.station_name || '').trim().toUpperCase().replace(/\s+/g, ' ') === name;
+}
+function renderStallCard(stall, expectedPlatformMatch = false) {
   const id = String(stall.id ?? '');
   const category = stall.category || 'Category not provided';
-  const platform = stall.platform_label || 'Platform not provided';
+  const platform = stall.platform_label || 'Not provided / unconfirmed';
   const station = (stall.station_name || 'Station not provided') + (stall.station_key ? ' (' + stall.station_key + ')' : '');
-  const coachLocation = stall.coach_location || 'Coach-related location not provided';
-  const coachMatch = lastCoachNumber && new RegExp('(^|[^A-Z0-9])' + lastCoachNumber + '([^A-Z0-9]|$)').test(String(coachLocation).toUpperCase());
-  const matchNote = coachMatch ? '<span class="coach-match">Coach location mentions ' + esc(lastCoachNumber) + '</span>' : '';
+  const locationDescription = stall.location_description || stall.directions || 'Physical stall location / landmark not provided';
   const status = stallAvailability(stall);
   const statusClass = String(stall.stall_status || '').toLowerCase() === 'open' ? 'status-open' : 'status-unknown';
-  const demoBadge = stall.demo_label ? '<span class="stall-status status-unknown">DEMO · NOT VERIFIED</span>' : '';
-  return '<article class="stall-card"><div class="stall-card-top"><div class="stall-icon">' + esc(stall.emoji || '🥪') + '</div><div class="stall-card-main"><div class="stall-category">' + esc(category) + '</div><h3>' + valueText(stall.name) + '</h3><p>' + esc(stall.description || 'Description not provided') + '</p>' + demoBadge + '<span class="stall-status ' + statusClass + '">' + esc(status) + '</span>' + matchNote + '</div></div><div class="stall-facts"><div><span>Station / code</span><b>' + esc(station) + '</b></div><div><span>Platform</span><b>' + esc(platform) + '</b></div><div><span>Coach location served</span><b>' + esc(coachLocation) + '</b></div><div><span>Menu, prices and stock</span><b>' + menuPreview(stall) + '</b></div></div><button class="btn outline large-btn wide view-stall-btn" data-stall-id="' + esc(id) + '">View Stall Details <span>→</span></button></article>';
+  const demoBadge = stall.demo_label ? '<span class="stall-status status-unknown">DEMO · SAMPLE ONLY · NOT VERIFIED</span>' : '';
+  const platformBadge = expectedPlatformMatch ? '<span class="coach-match">Matches Expected Platform ' + esc(lastJourney.nextStation.platform) + '</span>' : '';
+  return '<article class="stall-card"><div class="stall-card-top"><div class="stall-icon">' + esc(stall.emoji || '🥪') + '</div><div class="stall-card-main"><div class="stall-category">' + esc(category) + '</div><h3>' + valueText(stall.name) + '</h3><p>' + esc(stall.description || 'Description not provided') + '</p>' + demoBadge + '<span class="stall-status ' + statusClass + '">' + esc(status) + '</span>' + platformBadge + '</div></div><div class="stall-facts"><div><span>Station / code</span><b>' + esc(station) + '</b></div><div><span>Platform</span><b>' + esc(platform) + '</b></div><div><span>Location / landmarks</span><b>' + esc(locationDescription) + '</b></div><div><span>Coach-area relevance</span><b>Not verified — no trusted station-layout mapping is configured</b></div><div><span>Approximate distance</span><b>Unavailable — no verified coach-area coordinates or layout</b></div><div><span>Menu, prices and stock</span><b>' + menuPreview(stall) + '</b></div></div><div class="v-actions passenger-stall-actions"><button class="btn outline large-btn view-stall-btn" data-stall-id="' + esc(id) + '">View Stall Details <span>→</span></button>' + (!stall.demo_label && (stall.name || stall.station_name || stall.station_key) ? '<button class="btn green large-btn maps-card-btn" data-stall-id="' + esc(id) + '">Get Directions on Google Maps ↗</button>' : '') + '</div></article>';
 }
 const STALL_CATEGORIES = [
   { key: 'food', label: 'Food & Meals', icon: '🍛', hint: 'Meals and filling favourites' },
@@ -253,20 +262,37 @@ function loadHomeDiscovery() {
 }
 
 function updateStationStalls(stalls) {
-  stallsById = new Map(stalls.map(stall => [String(stall.id), stall]));
-  wireCategoryTiles(document.getElementById('stall-category-filters'), stalls, 'list');
+  const sameStation = (Array.isArray(stalls) ? stalls : []).filter(sameSelectedStation);
+  stallsById = new Map(sameStation.map(stall => [String(stall.id), stall]));
+  wireCategoryTiles(document.getElementById('stall-category-filters'), sameStation, 'list');
   const host = document.getElementById('stalls-content');
   if (!host) return;
-  const filtered = filteredStalls(stalls);
+  const filtered = filteredStalls(sameStation);
   const filterPanel = document.querySelector('.listing-filter-panel');
-  if (filterPanel) filterPanel.hidden = stalls.length === 0;
+  if (filterPanel) filterPanel.hidden = sameStation.length === 0;
+  const expected = normalizedPlatform(lastJourney?.nextStation?.platform);
+  const matches = expected ? filtered.filter(stall => !stall.demo_label && normalizedPlatform(stall.platform_label) === expected) : [];
+  const matchIds = new Set(matches.map(stall => String(stall.id)));
+  const others = filtered.filter(stall => !matchIds.has(String(stall.id)));
+  let html = '';
   if (!filtered.length) {
-    host.innerHTML = '<section class="panel empty"><div class="big">☕</div><h3>' + (stalls.length ? 'No stalls in this category yet' : 'No stall listings yet') + '</h3><p>' + (stalls.length ? 'Try another category to see available listings at ' + esc(stationTitle(lastJourney)) + '.' : 'There are currently no stall records associated with ' + esc(stationTitle(lastJourney)) + '. Listings for other stations are not shown here.') + '</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section>';
+    html = '<section class="stall-match-section"><h3>' + (sameStation.length ? 'Other Stalls at This Station' : 'Other Stalls at This Station') + '</h3><section class="panel empty"><div class="big">☕</div><h3>' + (sameStation.length ? 'No stalls in this category yet' : 'No stalls recorded for this station') + '</h3><p>' + (sameStation.length ? 'Try another category. Only listings for ' + esc(stationTitle(lastJourney)) + ' are shown.' : 'Expected Platform is ' + (expectedPlatform(lastJourney?.nextStation?.platform)) + '. No stall records match the selected next-station code/name. Listings from unrelated stations are deliberately not shown.') + '</p><button class="btn outline large-btn" id="stalls-back-next">← Back to station details</button></section></section>';
+    host.innerHTML = html;
     document.getElementById('stalls-back-next').onclick = () => goBack('next-station');
     return;
   }
-  host.innerHTML = '<div class="stall-results-meta">' + filtered.length + ' matching listing' + (filtered.length === 1 ? '' : 's') + ' for this station</div><div class="station-stall-list">' + filtered.map(renderStallCard).join('') + '</div><p class="data-note">Only published vendor registrations are listed. Coach labels are vendor-provided locations and do not guarantee exact physical proximity.</p>';
+  if (matches.length) {
+    html += '<section class="stall-match-section"><h3>Stalls on Expected Platform ' + esc(lastJourney.nextStation.platform) + '</h3><p class="data-note">Platform labels match the platform reported by the live train API. Coach-area proximity and distance are not verified because no trusted station-layout mapping is configured.</p><div class="station-stall-list">' + matches.map(stall => renderStallCard(stall, true)).join('') + '</div></section>';
+  }
+  if (others.length) {
+    const reason = !expected
+      ? 'Expected Platform is unconfirmed by the live source. These are other listings at the same station; no platform or coach proximity is implied.'
+      : (matches.length ? 'These listings are at the same station but do not match the reported Expected Platform.' : 'No stall is registered on the reported Expected Platform ' + esc(lastJourney.nextStation.platform) + '. Showing other stalls at the same station; the platform may be unconfirmed for these stalls.');
+    html += '<section class="stall-match-section"><h3>Other Stalls at This Station</h3><p class="data-note">' + reason + '</p><div class="station-stall-list">' + others.map(stall => renderStallCard(stall, false)).join('') + '</div></section>';
+  }
+  host.innerHTML = '<div class="stall-results-meta">' + filtered.length + ' stall listing' + (filtered.length === 1 ? '' : 's') + ' for ' + esc(stationTitle(lastJourney)) + '</div>' + html + '<p class="data-note">Coach labels entered by vendors are not used to infer physical proximity. Distances are omitted until verified coach-area coordinates or a validated station layout is available. Demo entries are fictional samples, not verified vendors.</p>';
   host.querySelectorAll('.view-stall-btn').forEach(button => button.addEventListener('click', () => navigate('stall-details/' + encodeURIComponent(button.dataset.stallId))));
+  host.querySelectorAll('.maps-card-btn').forEach(button => button.addEventListener('click', () => { const stall = stallsById.get(String(button.dataset.stallId)); if (stall) openGoogleMapsDirections(stall, lastJourney?.nextStation || {}); }));
 }
 
 function renderStationStalls() {
@@ -277,8 +303,8 @@ function renderStationStalls() {
     return;
   }
   const s = lastJourney.nextStation;
-  shell(pageHead('Stalls at ' + (s.name || s.code || 'your next station'), 'Only listings associated with this station are shown.') +
-    '<section class="station-stalls-heading"><div class="station-mini-code">' + valueText(s.code) + '</div><div><h2>' + valueText(s.name || s.code) + '</h2><p>Train ' + valueText(lastJourney.trainNumber) + ' · ' + valueText(lastJourney.trainName) + ' · ' + coachLabel() + '</p></div></section><section class="listing-filter-panel"><h3>Browse by category</h3><p>Choose a category to filter the actual listings for this station.</p><div id="stall-category-filters"></div><button type="button" class="btn outline large-btn" id="refresh-stalls">↻ Refresh listings</button></section><div id="stalls-content"></div>', 'STATION STALLS');
+  shell(pageHead('Stalls at ' + (s.name || s.code || 'your next station'), 'Station matches use the actual next-station code when available. Coach-area proximity is not claimed without verified station-layout data.') +
+    '<section class="station-stalls-heading"><div class="station-mini-code">' + valueText(s.code) + '</div><div><h2>' + valueText(s.name || s.code) + '</h2><p>Train ' + valueText(lastJourney.trainNumber) + ' · ' + valueText(lastJourney.trainName) + ' · ' + coachLabel() + '</p><p><b>Expected Platform:</b> ' + expectedPlatform(s.platform) + '</p></div></section><section class="listing-filter-panel"><h3>Browse by category</h3><p>Choose a category to filter stalls at this station. Platform matches are listed first when the live source provides a platform.</p><div id="stall-category-filters"></div><button type="button" class="btn outline large-btn" id="refresh-stalls">↻ Refresh listings</button></section><div id="stalls-content"></div>', 'STATION STALLS');
   document.getElementById('page-back').onclick = () => goBack('next-station');
   document.getElementById('refresh-stalls').onclick = () => {
     stallCache.delete(stationCacheKey());
@@ -314,7 +340,7 @@ function mapsDestination(stall, station = {}) {
     stall?.name,
     stationLabel,
     stall?.platform_label ? 'Platform ' + stall.platform_label : '',
-    stall?.coach_location,
+    stall?.location_description,
     stall?.description && !stall?.demo_label ? stall.description : '',
     stall?.directions
   ].map(v => String(v || '').trim()).filter(Boolean);
@@ -362,16 +388,17 @@ function renderStallDetails(id) {
   const menuHtml = menu.length ? '<div class="detail-menu-list">' + menu.map(item => { const stock = String(item.stock_status || item.stockStatus || '').toUpperCase(); const stockText = stock === 'IN_STOCK' ? 'In Stock' : stock === 'OUT_OF_STOCK' ? 'Out of Stock' : 'Stock status not provided'; return '<div class="detail-menu-item"><span>' + esc(item.name || item.item || item.title || 'Menu item') + '<small>' + stockText + '</small></span><b>' + (item.price !== undefined && item.price !== null && item.price !== '' ? '₹' + esc(item.price) : 'Price not provided') + '</b></div>'; }).join('') + '</div>' : '<div class="empty-menu">Menu details have not been provided for this stall.</div>';
   const station = lastJourney?.nextStation || {};
   const platform = stall.platform_label || 'Platform not provided';
-  const savedDirections = stall.directions && !/sample directions only; verify on site/i.test(String(stall.directions))
+  const savedDirections = stall.location_description || (stall.directions && !/sample directions only; verify on site/i.test(String(stall.directions))
     ? stall.directions
-    : (stall.demo_label ? 'Sample location only. Exact stall position is not verified.' : (stall.description || 'No detailed stall directions have been saved.'));
+    : (stall.demo_label ? 'Sample location only. Exact stall position is not verified.' : (stall.description || 'No detailed stall directions have been saved.')));
   const demoBanner = stall.demo_label ? '<div class="data-note"><b>DEMO DATA — NOT A VERIFIED VENDOR.</b> Names, locations, menu items and prices are illustrative examples only.</div>' : '';
   const html = pageHead('Stall details', 'Listing information for the selected station.') +
-    demoBanner + '<section class="stall-detail-hero"><div class="stall-detail-icon">' + esc(stall.emoji || '🥪') + '</div><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h2>' + valueText(stall.name) + '</h2><p>' + esc(stall.description || 'Description not provided') + '</p><span class="stall-status">' + esc(stallAvailability(stall)) + '</span></section><section class="panel stall-detail-panel"><h3>Location at station</h3><div class="data-row"><span>Station</span><b>' + valueText(stall.station_name || station.name || station.code) + '</b></div><div class="data-row"><span>Station code</span><b>' + valueText(stall.station_key || station.code) + '</b></div><div class="data-row"><span>Platform</span><b>' + esc(platform) + '</b></div><div class="data-row"><span>Coach location served</span><b>' + valueText(stall.coach_location) + '</b></div><div class="data-row"><span>Vendor</span><b>' + valueText(stall.vendor_name) + '</b></div><div class="data-row"><span>Contact</span><b>' + valueText(stall.vendor_contact) + '</b></div><h3 class="menu-heading">Full menu</h3>' + menuHtml + '<div class="directions-note"><b>Location / directions</b><p>' + esc(savedDirections) + '</p></div>' + (validStallCoordinates(stall) ? '<div class="data-note"><b>Exact coordinates saved</b> · ' + esc(stall.latitude + ', ' + stall.longitude) + '</div>' : '<div class="data-note"><b>Station-level directions only.</b> Exact stall coordinates are not saved, so Google Maps may not know the stall’s precise position.</div>') + '<button class="btn green wide large-btn maps-directions-btn" id="google-maps-directions">Get Directions on Google Maps ↗</button><button class="btn outline wide large-btn" id="details-back-list">← Back to station stalls</button></section>';
+    demoBanner + '<section class="stall-detail-hero"><div class="stall-detail-icon">' + esc(stall.emoji || '🥪') + '</div><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h2>' + valueText(stall.name) + '</h2><p>' + esc(stall.description || 'Description not provided') + '</p><span class="stall-status">' + esc(stallAvailability(stall)) + '</span></section><section class="panel stall-detail-panel"><h3>Location at station</h3><div class="data-row"><span>Station</span><b>' + valueText(stall.station_name || station.name || station.code) + '</b></div><div class="data-row"><span>Station code</span><b>' + valueText(stall.station_key || station.code) + '</b></div><div class="data-row"><span>Expected Platform</span><b>' + expectedPlatform(station.platform) + '</b></div><div class="data-row"><span>Stall platform</span><b>' + esc(platform) + '</b></div><div class="data-row"><span>Physical location / landmarks</span><b>' + valueText(stall.location_description || stall.directions) + '</b></div><div class="data-row"><span>Coach-area relevance</span><b>Not verified — no trusted station-layout mapping is configured</b></div><div class="data-row"><span>Journey context</span><b>Train ' + valueText(lastJourney?.trainNumber) + ' · ' + coachLabel() + '</b></div><div class="data-row"><span>Vendor</span><b>' + valueText(stall.vendor_name) + '</b></div><div class="data-row"><span>Contact</span><b>' + valueText(stall.vendor_contact) + '</b></div><h3 class="menu-heading">Full menu</h3>' + menuHtml + '<div class="directions-note"><b>Location / directions</b><p>' + esc(savedDirections) + '</p></div>' + (validStallCoordinates(stall) ? '<div class="data-note"><b>Exact coordinates saved</b> · ' + esc(stall.latitude + ', ' + stall.longitude) + '</div>' : '<div class="data-note"><b>Station-level directions only.</b> Exact stall coordinates are not saved, so Google Maps may not know the stall’s precise position.</div>') + (stall.demo_label ? '<div class="data-note"><b>Google Maps directions are unavailable for demo samples.</b> No verified destination is saved.</div>' : '<button class="btn green wide large-btn maps-directions-btn" id="google-maps-directions">Get Directions on Google Maps ↗</button>') + '<button class="btn outline wide large-btn" id="details-back-list">← Back to station stalls</button></section>';
   shell(html, 'STALL DETAILS');
   document.getElementById('page-back').onclick = () => goBack('station-stalls');
   document.getElementById('details-back-list').onclick = () => goBack('station-stalls');
-  document.getElementById('google-maps-directions').onclick = () => openGoogleMapsDirections(stall, station);
+  const mapsButton = document.getElementById('google-maps-directions');
+  if (mapsButton) mapsButton.onclick = () => openGoogleMapsDirections(stall, station);
 }
 let vendorProfile = null;
 let vendorStalls = [];

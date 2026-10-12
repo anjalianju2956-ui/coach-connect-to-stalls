@@ -29,8 +29,11 @@ function normalizeFields(body, profile, existing = {}) {
   const category = clean(body?.category ?? existing.category, 80);
   const stationName = clean(body?.stationName ?? body?.station_name ?? existing.station_name, 160);
   const stationCode = clean(body?.stationCode ?? body?.station_key ?? existing.station_key, 20).toUpperCase();
-  const platform = clean(body?.platformLabel ?? body?.platform_label ?? existing.platform_label, 40);
+  const platformRaw = body?.platformLabel ?? body?.platform_label ?? existing.platform_label;
+  const platform = clean(platformRaw, 40) || null;
   const coachLocation = clean(body?.coachLocation ?? body?.coach_location ?? existing.coach_location, 100);
+  const locationDescription = clean(body?.locationDescription ?? body?.location_description ?? existing.location_description, 500);
+  const coachAreaLabel = clean(body?.coachAreaLabel ?? body?.coach_area_label ?? existing.coach_area_label, 160);
   const directions = clean(body?.directions ?? existing.directions, 500);
   const description = clean(body?.description ?? existing.description, 500);
   const rawLat = body?.latitude ?? body?.lat ?? existing.latitude;
@@ -44,8 +47,7 @@ function normalizeFields(body, profile, existing = {}) {
   if (name.length < 2) throw new ValidationError('Enter a stall name.');
   if (!category) throw new ValidationError('Choose a stall category.');
   if (!stationName || !stationCode) throw new ValidationError('Enter both station name and station code.');
-  if (!platform) throw new ValidationError('Enter the stall platform number.');
-  if (!coachLocation) throw new ValidationError('Enter the coach number or coach-side location this stall serves.');
+  if (platform && !/^[A-Za-z0-9][A-Za-z0-9 /_-]{0,39}$/.test(platform)) throw new ValidationError('Enter a valid platform label, or leave it blank if not confirmed.');
   if (!validStatus(stallStatus)) throw new ValidationError('Choose Open, Closed, or Unavailable.');
   if (!['draft', 'published'].includes(publicationStatus)) throw new ValidationError('Choose Draft or Published.');
   if (publicationStatus === 'published' && (!profile?.vendor_name || !profile?.contact)) {
@@ -53,7 +55,8 @@ function normalizeFields(body, profile, existing = {}) {
   }
   return {
     name, category, station_name: stationName, station_key: stationCode,
-    platform_label: platform, coach_location: coachLocation, directions, description,
+    platform_label: platform, coach_location: coachLocation, location_description: locationDescription,
+    coach_area_label: coachAreaLabel, coach_area_verified: false, directions, description,
     stall_status: stallStatus, publication_status: publicationStatus,
     latitude, longitude, vendor_name: profile.vendor_name, vendor_contact: profile.contact
   };
@@ -71,7 +74,8 @@ export default async function (req, res) {
       const result = await db.query(
         `SELECT id, name, category, station_key, station_name, platform_label, description,
                 demo_label, menu_json, emoji, is_active, vendor_name, vendor_contact,
-                coach_location, directions, latitude, longitude, stall_status, publication_status, create_request_id, created_at, updated_at
+                coach_location, location_description, coach_area_label, coach_area_verified,
+                directions, latitude, longitude, stall_status, publication_status, create_request_id, created_at, updated_at
          FROM passenger_stalls WHERE owner_user_id = $1 ORDER BY updated_at DESC, created_at DESC LIMIT 100`,
         [userId]
       );
@@ -90,21 +94,24 @@ export default async function (req, res) {
         `INSERT INTO passenger_stalls
           (id, name, category, station_key, station_name, platform_label, description, demo_label,
            menu_json, emoji, is_active, owner_user_id, create_request_id, vendor_name, vendor_contact, coach_location,
-           directions, latitude, longitude, stall_status, publication_status, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8::jsonb,'🥪',TRUE,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+           location_description, coach_area_label, coach_area_verified, directions, latitude, longitude, stall_status, publication_status, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8::jsonb,'🥪',TRUE,$9,$10,$11,$12,$13,$14,$15,FALSE,$16,$17,$18,$19,$20,NOW())
          ON CONFLICT (owner_user_id, create_request_id) WHERE create_request_id IS NOT NULL DO NOTHING
          RETURNING id, name, category, station_key, station_name, platform_label, description,
                    menu_json, emoji, is_active, vendor_name, vendor_contact, coach_location,
-                   directions, latitude, longitude, stall_status, publication_status, created_at, updated_at`,
+                   location_description, coach_area_label, coach_area_verified, directions, latitude, longitude,
+                   stall_status, publication_status, created_at, updated_at`,
         [id, fields.name, fields.category, fields.station_key, fields.station_name, fields.platform_label,
          fields.description, JSON.stringify(menu), userId, requestId, fields.vendor_name, fields.vendor_contact,
-         fields.coach_location, fields.directions, fields.latitude, fields.longitude, fields.stall_status, fields.publication_status]
+         fields.coach_location, fields.location_description, fields.coach_area_label, fields.directions,
+         fields.latitude, fields.longitude, fields.stall_status, fields.publication_status]
       );
       if (result.rows[0]) return res.status(201).json({ ok: true, stall: result.rows[0], duplicateRequest: false });
       const prior = await db.query(
         `SELECT id, name, category, station_key, station_name, platform_label, description,
                 menu_json, emoji, is_active, vendor_name, vendor_contact, coach_location,
-                directions, latitude, longitude, stall_status, publication_status, created_at, updated_at
+                location_description, coach_area_label, coach_area_verified, directions, latitude, longitude,
+                stall_status, publication_status, created_at, updated_at
          FROM passenger_stalls WHERE owner_user_id = $1 AND create_request_id = $2 LIMIT 1`,
         [userId, requestId]
       );
@@ -130,16 +137,18 @@ export default async function (req, res) {
     const result = await db.query(
       `UPDATE passenger_stalls SET name=$3, category=$4, station_key=$5, station_name=$6,
         platform_label=$7, description=$8, menu_json=$9::jsonb, vendor_name=$10, vendor_contact=$11,
-        coach_location=$12, directions=$13, latitude=$14, longitude=$15, stall_status=$16, publication_status=$17,
+        coach_location=$12, location_description=$13, coach_area_label=$14, coach_area_verified=FALSE,
+        directions=$15, latitude=$16, longitude=$17, stall_status=$18, publication_status=$19,
         is_active=TRUE, demo_label='', updated_at=NOW()
        WHERE id=$1 AND owner_user_id=$2
        RETURNING id, name, category, station_key, station_name, platform_label, description,
                  menu_json, emoji, is_active, vendor_name, vendor_contact, coach_location,
-                 directions, latitude, longitude, stall_status, publication_status, created_at, updated_at`,
+                 location_description, coach_area_label, coach_area_verified, directions, latitude, longitude,
+                 stall_status, publication_status, created_at, updated_at`,
       [stallId, userId, fields.name, fields.category, fields.station_key, fields.station_name,
        fields.platform_label, fields.description, JSON.stringify(menu), fields.vendor_name,
-       fields.vendor_contact, fields.coach_location, fields.directions, fields.latitude, fields.longitude,
-       fields.stall_status, fields.publication_status]
+       fields.vendor_contact, fields.coach_location, fields.location_description, fields.coach_area_label,
+       fields.directions, fields.latitude, fields.longitude, fields.stall_status, fields.publication_status]
     );
     return res.json({ ok: true, stall: result.rows[0] });
   } catch (error) {

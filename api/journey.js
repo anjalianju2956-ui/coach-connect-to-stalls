@@ -78,7 +78,8 @@ function normalize(payload, trainNumber, date) {
       distanceKm: Number.isFinite(distance) && distance >= 0 ? distance : null,
       scheduledArrival: stationTime(routeStop.arrival || routeStop.arrivalTime || routeStop.arrival_time || ''),
       scheduledDeparture: stationTime(routeStop.departure || routeStop.departureTime || routeStop.departure_time || ''),
-      platform: clean(routeStop.platform || '', 30),
+      platform: clean(routeStop.platform ?? routeStop.platformNumber ?? routeStop.platform_number ?? routeStop.platformNo ?? routeStop.platform_no ?? routeStop.platformName ?? routeStop.platform_name ?? next.platform ?? next.platformNumber ?? next.platform_number ?? next.platformName ?? next.platform_name ?? '', 30),
+      platformSource: clean(routeStop.platform ?? routeStop.platformNumber ?? routeStop.platform_number ?? routeStop.platformNo ?? routeStop.platform_no ?? routeStop.platformName ?? routeStop.platform_name ?? next.platform ?? next.platformNumber ?? next.platform_number ?? next.platformName ?? next.platform_name ?? '') ? 'RailKit route response' : null,
       sequence: Number.isFinite(Number(routeStop.sequence)) ? Number(routeStop.sequence) : null
     },
     delayMinutes: Number.isFinite(delay) ? delay : null,

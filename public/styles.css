@@ -273,6 +273,7 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #247d
 .station-stalls-heading h2{margin:0 0 7px;color:var(--cc-navy);font-size:clamp(25px,2.1vw,30px);font-weight:800;line-height:1.3;overflow-wrap:anywhere}
 .station-stalls-heading p{margin:0;color:var(--cc-body);font-size:18px;line-height:1.55;overflow-wrap:anywhere}
 .stall-results-meta{margin:0 0 16px;color:var(--cc-body);font-size:17px;font-weight:750;line-height:1.5}
+.stall-match-section{margin:22px 0 28px}.stall-match-section>h3{margin:0 0 8px;color:var(--cc-navy);font-size:clamp(22px,2vw,27px);line-height:1.35}.stall-match-section>.data-note{margin:0 0 14px;line-height:1.6}.passenger-stall-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.passenger-stall-actions .btn{flex:1;min-width:180px}
 .station-stall-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .stall-card{padding:22px;box-shadow:none}
 .stall-card-top{display:flex;align-items:flex-start;gap:15px;min-width:0}

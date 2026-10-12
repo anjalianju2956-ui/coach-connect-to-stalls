@@ -12,11 +12,11 @@ const KNOWN_STATIONS = [
   {key:'NDLS',name:'New Delhi Railway Station'}
 ];
 const TEMPLATES = [
-  {slug:'tea-snacks',name:'Sample Tea & Snacks Stall',category:'beverages',emoji:'☕',status:'open',coach:'S1-side area',menu:[['Tea',15,'IN_STOCK'],['Coffee',25,'IN_STOCK'],['Biscuits',10,'OUT_OF_STOCK']]},
-  {slug:'meals-corner',name:'Sample Meals Corner',category:'food',emoji:'🍱',status:'open',coach:'B1-side area',menu:[['Idli plate',40,'IN_STOCK'],['Veg meal',90,'OUT_OF_STOCK']]},
-  {slug:'essentials',name:'Sample Essentials Kiosk',category:'groceries',emoji:'🧃',status:'unavailable',coach:'A1-side area',menu:[['Water bottle',20,'IN_STOCK'],['Tissues',15,'IN_STOCK']]},
-  {slug:'coffee-counter',name:'Sample Coffee Counter',category:'beverages',emoji:'☕',status:'closed',coach:'general coach-side area',menu:[['Filter coffee',30,'IN_STOCK'],['Hot chocolate',45,'OUT_OF_STOCK']]},
-  {slug:'south-indian-bites',name:'Sample South Indian Bites',category:'snacks',emoji:'🥪',status:'open',coach:'S2-side area',menu:[['Idli (2 pcs)',35,'IN_STOCK'],['Vada',20,'OUT_OF_STOCK']]}
+  {slug:'tea-snacks',name:'Sample Tea & Snacks Stall',category:'beverages',emoji:'☕',status:'open',menu:[['Tea',15,'IN_STOCK'],['Coffee',25,'IN_STOCK'],['Biscuits',10,'OUT_OF_STOCK']]},
+  {slug:'meals-corner',name:'Sample Meals Corner',category:'food',emoji:'🍱',status:'open',menu:[['Idli plate',40,'IN_STOCK'],['Veg meal',90,'OUT_OF_STOCK']]},
+  {slug:'essentials',name:'Sample Essentials Kiosk',category:'groceries',emoji:'🧃',status:'unavailable',menu:[['Water bottle',20,'IN_STOCK'],['Tissues',15,'IN_STOCK']]},
+  {slug:'coffee-counter',name:'Sample Coffee Counter',category:'beverages',emoji:'☕',status:'closed',menu:[['Filter coffee',30,'IN_STOCK'],['Hot chocolate',45,'OUT_OF_STOCK']]},
+  {slug:'south-indian-bites',name:'Sample South Indian Bites',category:'snacks',emoji:'🥪',status:'open',menu:[['Idli (2 pcs)',35,'IN_STOCK'],['Vada',20,'OUT_OF_STOCK']]}
 ];
 function clean(v,max=160){return String(v??'').trim().replace(/[<>]/g,'').slice(0,max)}
 function slug(v){return String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24)||'UNKNOWN'}
@@ -28,18 +28,21 @@ async function seedOne(station){
     await db.query(
       `INSERT INTO passenger_stalls
        (id,name,category,station_key,station_name,platform_label,description,demo_label,menu_json,emoji,is_active,
-        owner_user_id,vendor_name,vendor_contact,coach_location,directions,stall_status,publication_status,updated_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,TRUE,NULL,'','',$11,$12,$13,'published',NOW())
+        owner_user_id,vendor_name,vendor_contact,coach_location,location_description,coach_area_label,coach_area_verified,
+        directions,latitude,longitude,stall_status,publication_status,updated_at)
+       VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8::jsonb,$9,TRUE,NULL,'','','',$10,'',FALSE,$11,NULL,NULL,$12,'published',NOW())
        ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,category=EXCLUDED.category,station_key=EXCLUDED.station_key,
-        station_name=EXCLUDED.station_name,platform_label=EXCLUDED.platform_label,description=EXCLUDED.description,
+        station_name=EXCLUDED.station_name,platform_label=NULL,description=EXCLUDED.description,
         demo_label=EXCLUDED.demo_label,menu_json=EXCLUDED.menu_json,emoji=EXCLUDED.emoji,is_active=TRUE,
-        coach_location=EXCLUDED.coach_location,directions=EXCLUDED.directions,stall_status=EXCLUDED.stall_status,
+        coach_location='',location_description=EXCLUDED.location_description,coach_area_label='',coach_area_verified=FALSE,
+        directions=EXCLUDED.directions,latitude=NULL,longitude=NULL,stall_status=EXCLUDED.stall_status,
         publication_status='published',updated_at=NOW()
        WHERE passenger_stalls.owner_user_id IS NULL AND COALESCE(passenger_stalls.demo_label,'') <> ''
        RETURNING id`,
-      [id,t.name,t.category,key,name,'Sample Platform '+(i+1),
+      [id,t.name,t.category,key,name,
        'DEMO DATA ONLY — fictional sample, not a real or verified business.',DEMO_LABEL,
-       JSON.stringify(menu),t.emoji,'Sample: '+t.coach+' (not verified)','Station-level sample only; exact stall position is not verified.',t.status]
+       JSON.stringify(menu),t.emoji,'Demo sample only; exact stall location and coach-side area are not verified.',
+       'Demo location only; exact stall position is not verified.',t.status]
     );
   }
   const deleted=await db.query(

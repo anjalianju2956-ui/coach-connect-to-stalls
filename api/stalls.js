@@ -5,11 +5,11 @@ export const methods = ['GET'];
 
 const DEMO_LABEL = 'DEMO · SAMPLE ONLY · NOT VERIFIED';
 const TEMPLATES = [
-  { slug:'tea-snacks', name:'Sample Tea & Snacks Stall', category:'beverages', emoji:'☕', status:'open', coach:'S1-side area', menu:[['Tea',15,'IN_STOCK'],['Coffee',25,'IN_STOCK'],['Biscuits',10,'OUT_OF_STOCK']] },
-  { slug:'meals-corner', name:'Sample Meals Corner', category:'food', emoji:'🍱', status:'open', coach:'B1-side area', menu:[['Idli plate',40,'IN_STOCK'],['Veg meal',90,'OUT_OF_STOCK']] },
-  { slug:'essentials', name:'Sample Essentials Kiosk', category:'groceries', emoji:'🧃', status:'unavailable', coach:'A1-side area', menu:[['Water bottle',20,'IN_STOCK'],['Tissues',15,'IN_STOCK']] },
-  { slug:'coffee-counter', name:'Sample Coffee Counter', category:'beverages', emoji:'☕', status:'closed', coach:'general coach-side area', menu:[['Filter coffee',30,'IN_STOCK'],['Hot chocolate',45,'OUT_OF_STOCK']] },
-  { slug:'south-indian-bites', name:'Sample South Indian Bites', category:'snacks', emoji:'🥪', status:'open', coach:'S2-side area', menu:[['Idli (2 pcs)',35,'IN_STOCK'],['Vada',20,'OUT_OF_STOCK']] }
+  { slug:'tea-snacks', name:'Sample Tea & Snacks Stall', category:'beverages', emoji:'☕', status:'open', menu:[['Tea',15,'IN_STOCK'],['Coffee',25,'IN_STOCK'],['Biscuits',10,'OUT_OF_STOCK']] },
+  { slug:'meals-corner', name:'Sample Meals Corner', category:'food', emoji:'🍱', status:'open', menu:[['Idli plate',40,'IN_STOCK'],['Veg meal',90,'OUT_OF_STOCK']] },
+  { slug:'essentials', name:'Sample Essentials Kiosk', category:'groceries', emoji:'🧃', status:'unavailable', menu:[['Water bottle',20,'IN_STOCK'],['Tissues',15,'IN_STOCK']] },
+  { slug:'coffee-counter', name:'Sample Coffee Counter', category:'beverages', emoji:'☕', status:'closed', menu:[['Filter coffee',30,'IN_STOCK'],['Hot chocolate',45,'OUT_OF_STOCK']] },
+  { slug:'south-indian-bites', name:'Sample South Indian Bites', category:'snacks', emoji:'🥪', status:'open', menu:[['Idli (2 pcs)',35,'IN_STOCK'],['Vada',20,'OUT_OF_STOCK']] }
 ];
 
 function clean(value, max = 160) {
@@ -50,13 +50,14 @@ async function seedStationIfFirstVisit(stationKey, stationName) {
     await db.query(
       `INSERT INTO passenger_stalls
         (id,name,category,station_key,station_name,platform_label,description,demo_label,menu_json,emoji,is_active,
-         owner_user_id,vendor_name,vendor_contact,coach_location,directions,stall_status,publication_status,updated_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,TRUE,NULL,'','',$11,$12,$13,'published',NOW())
+         owner_user_id,vendor_name,vendor_contact,coach_location,location_description,coach_area_label,coach_area_verified,
+         directions,latitude,longitude,stall_status,publication_status,updated_at)
+       VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8::jsonb,$9,TRUE,NULL,'','','',$10,'',FALSE,$11,NULL,NULL,$12,'published',NOW())
        ON CONFLICT(id) DO NOTHING`,
-      [id,t.name,t.category,stationKey,stationName,'Sample Platform ' + (i + 1),
+      [id,t.name,t.category,stationKey,stationName,
        'DEMO DATA ONLY — fictional sample, not a real or verified business.',DEMO_LABEL,
-       JSON.stringify(menu),t.emoji,'Sample: ' + t.coach + ' (not verified)',
-       'Station-level sample only; exact stall position is not verified.',t.status]
+       JSON.stringify(menu),t.emoji,'Demo sample only; exact stall location and coach-side area are not verified.',
+       'Demo location only; exact stall position is not verified.',t.status]
     );
   }
   await db.query(
@@ -80,16 +81,16 @@ export default async function (req, res) {
     await seedStationIfFirstVisit(stationKey, resolvedName);
     const result = await db.query(
       `SELECT id, name, category, station_key, station_name, platform_label, description,
-              vendor_name, vendor_contact, coach_location, directions, latitude, longitude, stall_status,
-              publication_status, demo_label, menu_json, emoji, updated_at
+              vendor_name, vendor_contact, coach_location, location_description, coach_area_label, coach_area_verified,
+              directions, latitude, longitude, stall_status, publication_status, demo_label, menu_json, emoji, updated_at
        FROM passenger_stalls
        WHERE is_active = TRUE
          AND publication_status = 'published'
          AND ((COALESCE(demo_label, '') = '' AND owner_user_id IS NOT NULL)
               OR (COALESCE(demo_label, '') <> '' AND owner_user_id IS NULL))
-         AND (UPPER(station_key) = UPPER($1) OR UPPER(station_name) = UPPER($2))
+         AND (CASE WHEN $1 <> '' THEN UPPER(station_key) = UPPER($1) ELSE UPPER(station_name) = UPPER($2) END)
        ORDER BY name ASC LIMIT 100`,
-      [stationKey, resolvedName]
+      [rawKey, resolvedName]
     );
     return res.json({
       ok: true,
