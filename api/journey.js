@@ -1,4 +1,4 @@
-import { config } from 'hatchable';
+import { config, db } from 'hatchable';
 
 export const access = 'public';
 export const methods = ['POST'];
@@ -8,6 +8,7 @@ function indiaDate() {
   const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
   return values.year + '-' + values.month + '-' + values.day;
 }
+function indiaMonth() { return indiaDate().slice(0, 7); }
 function clean(value, max = 160) { return String(value ?? '').replace(/[<>]/g, '').trim().slice(0, max); }
 function firstStation(data) {
   const info = Array.isArray(data.trainInfo) ? data.trainInfo[0] : (data.trainInfo || data.train || {});
@@ -100,6 +101,41 @@ export default async function(req, res) {
   }
 
   const date = indiaDate();
+  const monthKey = indiaMonth();
+  // A fresh cached response costs no RailKit request. Cache is intentionally short-lived for live status.
+  const cachedResult = await db.query(
+    "SELECT response_json FROM train_lookup_cache WHERE train_number=$1 AND service_date=$2 AND fetched_at > NOW() - INTERVAL '2 minutes' LIMIT 1",
+    [trainNumber, date]
+  );
+  if (cachedResult.rows[0]?.response_json) {
+    const cachedJourney = cachedResult.rows[0].response_json;
+    if (cachedJourney?.nextStation) return res.json({ ok: true, journey: cachedJourney, cached: true });
+  }
+  // Recover a stale in-flight marker after a crashed/terminated request, then claim this train/date.
+  await db.query(
+    "DELETE FROM railkit_request_locks WHERE train_number=$1 AND service_date=$2 AND started_at < NOW() - INTERVAL '60 seconds'",
+    [trainNumber, date]
+  );
+  const lock = await db.query(
+    'INSERT INTO railkit_request_locks(train_number,service_date,started_at) VALUES($1,$2,NOW()) ON CONFLICT(train_number,service_date) DO NOTHING RETURNING train_number',
+    [trainNumber, date]
+  );
+  if (!lock.rows.length) {
+    const racedCache = await db.query(
+      "SELECT response_json FROM train_lookup_cache WHERE train_number=$1 AND service_date=$2 AND fetched_at > NOW() - INTERVAL '2 minutes' LIMIT 1",
+      [trainNumber, date]
+    );
+    if (racedCache.rows[0]?.response_json?.nextStation) return res.json({ ok: true, journey: racedCache.rows[0].response_json, cached: true });
+    return res.status(409).json({ error: 'A live status request for this train is already in progress. Wait briefly before trying again.' });
+  }
+  const usage = await db.query(
+    'INSERT INTO railkit_monthly_usage(month_key,request_count,updated_at) VALUES($1,1,NOW()) ON CONFLICT(month_key) DO UPDATE SET request_count=railkit_monthly_usage.request_count+1,updated_at=NOW() WHERE railkit_monthly_usage.request_count < 50 RETURNING request_count',
+    [monthKey]
+  );
+  if (!usage.rows.length) {
+    await db.query('DELETE FROM railkit_request_locks WHERE train_number=$1 AND service_date=$2', [trainNumber, date]);
+    return res.status(429).json({ error: 'Coach-Connect has reached its strict 50-request RailKit limit for this month. Cached status remains available briefly; try again next month.' });
+  }
   const path = '/api/v2/trains/' + encodeURIComponent(trainNumber) + '/live/' + encodeURIComponent(date);
   const url = 'https://api.railkit.in' + path;
   try {
@@ -140,10 +176,21 @@ export default async function(req, res) {
     let journey;
     try { journey = normalize(payload, trainNumber, date); }
     catch (e) { return res.status(422).json({ error: clean(e?.message || 'RailKit did not return a next station.', 260) }); }
-    return res.json({ ok: true, journey });
+    try {
+      await db.query(
+        'INSERT INTO train_lookup_cache(train_number,service_date,response_json,fetched_at) VALUES($1,$2,$3::jsonb,NOW()) ON CONFLICT(train_number) DO UPDATE SET service_date=EXCLUDED.service_date,response_json=EXCLUDED.response_json,fetched_at=NOW()',
+        [trainNumber, date, JSON.stringify(journey)]
+      );
+    } catch (cacheError) {
+      console.error('RailKit cache write failed', clean(cacheError?.message || cacheError, 160));
+    }
+    return res.json({ ok: true, journey, cached: false, monthlyRequestCount: usage.rows[0].request_count });
   } catch (e) {
     console.error('RailKit live tracking failed', clean(e?.message || e, 180));
     if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return res.status(504).json({ error: 'RailKit timed out. Try again in a little while.' });
     return res.status(502).json({ error: 'Could not reach RailKit. Check the network or try again later.' });
+  } finally {
+    try { await db.query('DELETE FROM railkit_request_locks WHERE train_number=$1 AND service_date=$2', [trainNumber, date]); }
+    catch (cleanupError) { console.error('RailKit request lock cleanup failed', clean(cleanupError?.message || cleanupError, 160)); }
   }
 }
