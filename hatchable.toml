@@ -9,3 +9,7 @@ description = "RailKit API key for live train tracking. Set this in Hatchable pr
 [auth]
 enabled = true
 providers = ["email"]
+
+[db.tables.vendor_profiles]
+read = "own"
+write = "own"

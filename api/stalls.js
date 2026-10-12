@@ -22,12 +22,12 @@ export default async function (req, res) {
     const result = await db.query(
       `SELECT id, name, category, station_key, station_name, platform_label, description,
               vendor_name, vendor_contact, coach_location, directions, stall_status,
-              publication_status, menu_json, emoji, updated_at
+              publication_status, demo_label, menu_json, emoji, updated_at
        FROM passenger_stalls
        WHERE is_active = TRUE
          AND publication_status = 'published'
-         AND COALESCE(demo_label, '') = ''
-         AND owner_user_id IS NOT NULL
+         AND ((COALESCE(demo_label, '') = '' AND owner_user_id IS NOT NULL)
+              OR (COALESCE(demo_label, '') <> '' AND owner_user_id IS NULL))
          AND (UPPER(station_key) = UPPER($1) OR UPPER(station_name) = UPPER($2))
        ORDER BY name ASC LIMIT 100`,
       [stationKey, stationName]

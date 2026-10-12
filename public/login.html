@@ -62,8 +62,8 @@ button:disabled{opacity:.6;cursor:wait}
   let hasPasskey = false;
   let signedInUser = null;
   const params = new URLSearchParams(location.search);
-  const requestedNext = params.get('next') || '/#vendor';
-  const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/#vendor';
+  const requestedNext = params.get('next') || '/vendor.html';
+  const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/vendor.html';
   function say(text, error = false) { message.textContent = text; message.classList.toggle('error', error); }
   function busy(button, value, text) { button.disabled = value; if (text) button.textContent = text; }
   function finish() { location.assign(nextPath); }
