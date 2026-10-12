@@ -163,22 +163,23 @@ const STALL_CATEGORIES = [
   { key: 'beverages', label: 'Tea & Beverages', icon: '☕', hint: 'Tea, coffee and drinks' },
   { key: 'snacks', label: 'Snacks & Quick Bites', icon: '🥪', hint: 'Quick bites for the journey' }
 ];
-function stallCategoryKey(stall) {
+function stallCategoryKeys(stall) {
   const value = String(stall.category || '').toLowerCase();
-  if (/food|meal|breakfast|lunch|dinner|restaurant|thali/.test(value)) return 'food';
-  if (/tea|beverage|drink|coffee|juice|chai/.test(value)) return 'beverages';
-  if (/snack|quick.?bite|bite|fast.?food|bakery|sweet|sweets/.test(value)) return 'snacks';
-  return '';
+  const keys = [];
+  if (/food|meal|breakfast|lunch|dinner|restaurant|thali/.test(value)) keys.push('food');
+  if (/tea|beverage|drink|coffee|juice|chai/.test(value)) keys.push('beverages');
+  if (/snack|quick.?bite|bite|fast.?food|bakery|sweet|sweets/.test(value)) keys.push('snacks');
+  return keys;
 }
 function filteredStalls(stalls) {
-  return selectedStallCategory === 'all' ? stalls : stalls.filter(stall => stallCategoryKey(stall) === selectedStallCategory);
+  return selectedStallCategory === 'all' ? stalls : stalls.filter(stall => stallCategoryKeys(stall).includes(selectedStallCategory));
 }
 function categoryTiles(stalls) {
-  const supported = STALL_CATEGORIES.filter(category => stalls.some(stall => stallCategoryKey(stall) === category.key));
+  const supported = STALL_CATEGORIES.filter(category => stalls.some(stall => stallCategoryKeys(stall).includes(category.key)));
   if (!stalls.length) return '<p class="category-unavailable">Category filters will appear when stall listings are available.</p>';
   const allTile = '<button type="button" class="category-tile ' + (selectedStallCategory === 'all' ? 'active' : '') + '" data-category="all" aria-pressed="' + (selectedStallCategory === 'all') + '"><span class="category-emoji">✨</span><span class="category-tile-copy"><b>All stalls</b><small>' + stalls.length + ' available listing' + (stalls.length === 1 ? '' : 's') + '</small></span><span class="category-arrow">↗</span></button>';
   const categoryButtons = supported.map(category => {
-    const count = stalls.filter(stall => stallCategoryKey(stall) === category.key).length;
+    const count = stalls.filter(stall => stallCategoryKeys(stall).includes(category.key)).length;
     return '<button type="button" class="category-tile ' + (selectedStallCategory === category.key ? 'active' : '') + '" data-category="' + category.key + '" aria-pressed="' + (selectedStallCategory === category.key) + '"><span class="category-emoji">' + category.icon + '</span><span class="category-tile-copy"><b>' + category.label + '</b><small>' + count + ' available listing' + (count === 1 ? '' : 's') + '</small></span><span class="category-arrow">↗</span></button>';
   }).join('');
   return '<div class="category-grid">' + allTile + categoryButtons + '</div>';
