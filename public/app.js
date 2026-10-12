@@ -295,6 +295,61 @@ function renderStationStalls() {
     if (back) back.onclick = () => goBack('next-station');
   });
 }
+function validStallCoordinates(stall) {
+  const rawLat = stall?.latitude ?? stall?.lat;
+  const rawLng = stall?.longitude ?? stall?.lng;
+  if (rawLat === '' || rawLat == null || rawLng === '' || rawLng == null) return null;
+  const latitude = Number(rawLat), longitude = Number(rawLng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  return { latitude, longitude };
+}
+function mapsDestination(stall, station = {}) {
+  const coordinates = validStallCoordinates(stall);
+  if (coordinates) return { destination: coordinates.latitude + ',' + coordinates.longitude, exact: true };
+  const stationName = stall?.station_name || station.name || station.code || '';
+  const stationCode = stall?.station_key || station.code || '';
+  const stationLabel = stationName + (stationCode ? ' (' + stationCode + ')' : '');
+  const parts = [
+    stall?.name,
+    stationLabel,
+    stall?.platform_label ? 'Platform ' + stall.platform_label : '',
+    stall?.coach_location,
+    stall?.description && !stall?.demo_label ? stall.description : '',
+    stall?.directions
+  ].map(v => String(v || '').trim()).filter(Boolean);
+  return { destination: parts.join(', '), exact: false };
+}
+function openGoogleMapsDirections(stall, station = {}) {
+  const destination = mapsDestination(stall, station);
+  if (!destination.destination) return;
+  const base = 'https://www.google.com/maps/dir/?api=1&destination=' +
+    encodeURIComponent(destination.destination) + '&travelmode=walking';
+  // Open synchronously from the click to avoid popup blockers during the GPS prompt.
+  const mapTab = window.open('about:blank', '_blank');
+  if (mapTab) {
+    try { mapTab.opener = null; } catch { /* browser may protect opener */ }
+  }
+  const navigateMaps = url => {
+    if (mapTab && !mapTab.closed) {
+      try { mapTab.location.replace(url); return; } catch { /* fall through if the tab is unavailable */ }
+    }
+    window.location.assign(url);
+  };
+  if (!navigator.geolocation?.getCurrentPosition) {
+    navigateMaps(base);
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      const origin = Number(position.coords.latitude) + ',' + Number(position.coords.longitude);
+      navigateMaps(base + '&origin=' + encodeURIComponent(origin));
+    },
+    () => navigateMaps(base),
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+  );
+}
+
 function renderStallDetails(id) {
   const stall = stallsById.get(String(id));
   if (!stall) {
@@ -307,12 +362,16 @@ function renderStallDetails(id) {
   const menuHtml = menu.length ? '<div class="detail-menu-list">' + menu.map(item => { const stock = String(item.stock_status || item.stockStatus || '').toUpperCase(); const stockText = stock === 'IN_STOCK' ? 'In Stock' : stock === 'OUT_OF_STOCK' ? 'Out of Stock' : 'Stock status not provided'; return '<div class="detail-menu-item"><span>' + esc(item.name || item.item || item.title || 'Menu item') + '<small>' + stockText + '</small></span><b>' + (item.price !== undefined && item.price !== null && item.price !== '' ? '₹' + esc(item.price) : 'Price not provided') + '</b></div>'; }).join('') + '</div>' : '<div class="empty-menu">Menu details have not been provided for this stall.</div>';
   const station = lastJourney?.nextStation || {};
   const platform = stall.platform_label || 'Platform not provided';
+  const savedDirections = stall.directions && !/sample directions only; verify on site/i.test(String(stall.directions))
+    ? stall.directions
+    : (stall.demo_label ? 'Sample location only. Exact stall position is not verified.' : (stall.description || 'No detailed stall directions have been saved.'));
   const demoBanner = stall.demo_label ? '<div class="data-note"><b>DEMO DATA — NOT A VERIFIED VENDOR.</b> Names, locations, menu items and prices are illustrative examples only.</div>' : '';
   const html = pageHead('Stall details', 'Listing information for the selected station.') +
-    demoBanner + '<section class="stall-detail-hero"><div class="stall-detail-icon">' + esc(stall.emoji || '🥪') + '</div><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h2>' + valueText(stall.name) + '</h2><p>' + esc(stall.description || 'Description not provided') + '</p><span class="stall-status">' + esc(stallAvailability(stall)) + '</span></section><section class="panel stall-detail-panel"><h3>Location at station</h3><div class="data-row"><span>Station</span><b>' + valueText(stall.station_name || station.name || station.code) + '</b></div><div class="data-row"><span>Station code</span><b>' + valueText(stall.station_key || station.code) + '</b></div><div class="data-row"><span>Platform</span><b>' + esc(platform) + '</b></div><div class="data-row"><span>Coach location served</span><b>' + valueText(stall.coach_location) + '</b></div><div class="data-row"><span>Vendor</span><b>' + valueText(stall.vendor_name) + '</b></div><div class="data-row"><span>Contact</span><b>' + valueText(stall.vendor_contact) + '</b></div><h3 class="menu-heading">Full menu</h3>' + menuHtml + '<div class="directions-note"><b>Location / directions</b><p>' + esc(stall.directions || 'Directions have not been provided by this vendor.') + '</p></div><button class="btn green wide large-btn" id="details-back-list">← Back to station stalls</button></section>';
+    demoBanner + '<section class="stall-detail-hero"><div class="stall-detail-icon">' + esc(stall.emoji || '🥪') + '</div><span class="stall-category">' + esc(stall.category || 'Category not provided') + '</span><h2>' + valueText(stall.name) + '</h2><p>' + esc(stall.description || 'Description not provided') + '</p><span class="stall-status">' + esc(stallAvailability(stall)) + '</span></section><section class="panel stall-detail-panel"><h3>Location at station</h3><div class="data-row"><span>Station</span><b>' + valueText(stall.station_name || station.name || station.code) + '</b></div><div class="data-row"><span>Station code</span><b>' + valueText(stall.station_key || station.code) + '</b></div><div class="data-row"><span>Platform</span><b>' + esc(platform) + '</b></div><div class="data-row"><span>Coach location served</span><b>' + valueText(stall.coach_location) + '</b></div><div class="data-row"><span>Vendor</span><b>' + valueText(stall.vendor_name) + '</b></div><div class="data-row"><span>Contact</span><b>' + valueText(stall.vendor_contact) + '</b></div><h3 class="menu-heading">Full menu</h3>' + menuHtml + '<div class="directions-note"><b>Location / directions</b><p>' + esc(savedDirections) + '</p></div>' + (validStallCoordinates(stall) ? '<div class="data-note"><b>Exact coordinates saved</b> · ' + esc(stall.latitude + ', ' + stall.longitude) + '</div>' : '<div class="data-note"><b>Station-level directions only.</b> Exact stall coordinates are not saved, so Google Maps may not know the stall’s precise position.</div>') + '<button class="btn green wide large-btn maps-directions-btn" id="google-maps-directions">Get Directions on Google Maps ↗</button><button class="btn outline wide large-btn" id="details-back-list">← Back to station stalls</button></section>';
   shell(html, 'STALL DETAILS');
   document.getElementById('page-back').onclick = () => goBack('station-stalls');
   document.getElementById('details-back-list').onclick = () => goBack('station-stalls');
+  document.getElementById('google-maps-directions').onclick = () => openGoogleMapsDirections(stall, station);
 }
 let vendorProfile = null;
 let vendorStalls = [];

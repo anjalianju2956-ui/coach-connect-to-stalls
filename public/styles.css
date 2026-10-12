@@ -1,4 +1,6 @@
 /* Coach-Connect UI refresh: navy, white and green; larger accessible type. */
+.maps-directions-btn{margin-top:18px;min-height:58px;font-size:1.08rem;font-weight:800;letter-spacing:.01em;box-shadow:0 10px 24px #167b4a25;border:2px solid #176a43}
+.maps-directions-btn:focus-visible{outline:3px solid #f0b429;outline-offset:3px}
 /* Station-stall discovery section */
 .discover-section{margin-top:28px;padding:clamp(18px,3.5vw,30px);background:#fff;border:1px solid #dbe5ed;border-radius:24px;box-shadow:0 16px 40px #102b4e0d}
 .discover-banner{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:18px;align-items:center;min-height:245px;padding:clamp(24px,4vw,38px);border-radius:20px;background:linear-gradient(120deg,#102b4e 0%,#1c456d 70%,#1d5a66 100%);color:#fff}

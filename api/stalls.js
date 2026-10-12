@@ -80,7 +80,7 @@ export default async function (req, res) {
     await seedStationIfFirstVisit(stationKey, resolvedName);
     const result = await db.query(
       `SELECT id, name, category, station_key, station_name, platform_label, description,
-              vendor_name, vendor_contact, coach_location, directions, stall_status,
+              vendor_name, vendor_contact, coach_location, directions, latitude, longitude, stall_status,
               publication_status, demo_label, menu_json, emoji, updated_at
        FROM passenger_stalls
        WHERE is_active = TRUE
