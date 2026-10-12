@@ -456,6 +456,66 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #247d
   .data-row span{font-size:16px}
 }
 
+/* Passenger coach context and authenticated vendor workspace */
+.top{gap:12px;flex-wrap:wrap}
+.vendor-portal-link{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:8px 14px;border:1px solid #c8d7e7;border-radius:10px;color:#173c6b;background:#fff;font-weight:750;text-decoration:none;font-size:15px;white-space:nowrap}
+.vendor-portal-link:hover{background:#edf4fa}
+.form-hint{font-size:15px;line-height:1.5;color:#53657a;margin:4px 0 14px}
+.vendor-auth-panel{max-width:660px;margin:22px auto;padding:30px}
+.vendor-auth-panel h2{font-size:26px;color:#173c6b;margin:0 0 10px}
+.vendor-auth-panel p{font-size:17px;line-height:1.55;color:#4b5b6f;margin:0 0 22px}
+.vendor-loading{padding:28px;font-size:18px}
+.vendor-profile-summary,.vendor-stall-title,.vendor-section-title{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.vendor-profile-summary{margin:18px 0;padding:22px}
+.vendor-profile-summary h2{font-size:25px;color:#173c6b;margin:5px 0}
+.vendor-profile-summary p,.vendor-stall-title p,.vendor-section-title p{font-size:16px;line-height:1.5;color:#506178;margin:5px 0 0}
+.vendor-section-title{margin-bottom:18px}
+.vendor-section-title h2,.vendor-list-section h2{font-size:26px;line-height:1.25;color:#173c6b;margin:0}
+.vendor-stall-form-panel,.vendor-profile-panel{padding:24px;margin:20px 0}
+.vendor-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
+.vendor-form-grid .field{min-width:0;margin:0}
+.vendor-form-grid input,.vendor-form-grid select,.vendor-menu-edit input,.vendor-menu-edit select,.vendor-menu-add input,.vendor-menu-add select{width:100%;box-sizing:border-box;min-height:50px;border:1px solid #b8c8da;border-radius:10px;background:#fff;color:#1d2f45;padding:10px 12px;font:inherit;font-size:16px}
+.vendor-form-grid label,.vendor-menu-edit label,.vendor-menu-add label{display:block;font-size:15px;font-weight:700;color:#263d56;margin:0 0 7px}
+.vendor-first-menu{margin:22px 0 8px;padding:18px;border:1px solid #d5e1ed;border-radius:12px;min-width:0}
+.vendor-first-menu legend{font-size:17px;font-weight:800;color:#173c6b;padding:0 6px}
+.vendor-form-actions,.vendor-stall-actions,.vendor-menu-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.vendor-form-actions .btn,.vendor-stall-actions .btn,.vendor-menu-actions .btn{flex:1;min-width:150px}
+.vendor-list-section{margin:28px 0}
+.vendor-count,.vendor-pub-status{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 12px;font-size:14px;font-weight:800;background:#eaf2fa;color:#173c6b;white-space:nowrap}
+.vendor-stall-card{padding:22px;margin:18px 0}
+.vendor-stall-title{align-items:flex-start}
+.vendor-stall-title h3{font-size:24px;line-height:1.25;color:#173c6b;margin:7px 0}
+.vendor-stall-facts{display:flex;gap:12px 24px;flex-wrap:wrap;margin:16px 0;color:#3d4f64;font-size:15px;line-height:1.5}
+.vendor-stall-card h4{font-size:18px;color:#173c6b;margin:24px 0 12px}
+.vendor-menu-list{display:grid;gap:12px}
+.vendor-menu-edit,.vendor-menu-add{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(110px,.8fr) minmax(145px,1fr);align-items:end;gap:12px;padding:14px;border:1px solid #d8e2ed;border-radius:12px;background:#fbfdff}
+.vendor-menu-edit label,.vendor-menu-add label{min-width:0;margin:0}
+.vendor-menu-actions{grid-column:1/-1;margin-top:0}
+.vendor-menu-actions .btn{min-height:44px;font-size:15px}
+.vendor-menu-add{margin-top:18px;background:#f5f9fc}
+.vendor-menu-add h4{grid-column:1/-1;margin:0}
+.vendor-menu-add button{grid-column:1/-1;justify-self:start;width:auto;min-width:180px}
+.vendor-empty-menu{font-size:16px;color:#53657a}
+.btn.danger{background:#fff1f0;color:#a12622;border:1px solid #e5b6b3}
+.btn.danger:hover{background:#ffe3e1}
+.stall-status{display:inline-flex;padding:6px 10px;border-radius:999px;background:#f0f3f7;color:#46556a;font-size:14px;font-weight:800;margin-top:8px}
+.stall-status.status-open{background:#e4f5eb;color:#176a4b}
+.coach-match{display:inline-block;margin:8px 0 0;padding:5px 8px;border-radius:7px;background:#e9f4ff;color:#174e7a;font-size:13px;font-weight:750}
+.detail-menu-item{align-items:flex-start;gap:18px}
+.detail-menu-item span{display:flex;flex-direction:column;gap:5px}
+.detail-menu-item small{font-size:14px;color:#52657a}
+.vendor-profile-panel .field{margin-bottom:14px}
+@media(max-width:700px){
+  .vendor-form-grid{grid-template-columns:minmax(0,1fr)}
+  .vendor-profile-summary,.vendor-stall-title,.vendor-section-title{align-items:flex-start}
+  .vendor-menu-edit,.vendor-menu-add{grid-template-columns:minmax(0,1fr)}
+  .vendor-menu-actions,.vendor-menu-add h4,.vendor-menu-add button{grid-column:auto}
+  .vendor-menu-add button{width:100%}
+  .vendor-stall-actions .btn,.vendor-form-actions .btn{width:100%;min-width:0}
+  .vendor-stall-title h3{font-size:22px}
+  .vendor-portal-link{font-size:14px;padding:8px 10px}
+}
+
 /* Separate-purpose route layout: search stays a form; live status stays focused. */
 .search-only-panel{max-width:760px;margin:24px auto 40px}
 .search-only-panel .field{margin-bottom:14px}

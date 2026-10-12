@@ -5,3 +5,7 @@ tagline = "Find food and essentials at your next station"
 name = "RAILKIT_API_KEY"
 required = false
 description = "RailKit API key for live train tracking. Set this in Hatchable project Setup. It is only used by backend routes and is never exposed to the browser."
+
+[auth]
+enabled = true
+providers = ["email"]

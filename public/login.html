@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#173c6b">
+<title>Vendor sign in · Coach-Connect</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{min-height:100vh;margin:0;background:#f4f7fb;color:#172b45;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
+.login-card{width:100%;max-width:460px;background:#fff;border:1px solid #dbe4ef;border-radius:22px;padding:32px;box-shadow:0 16px 45px #173c6b12;box-sizing:border-box}
+.login-brand{font-weight:800;color:#173c6b;letter-spacing:.02em;font-size:16px;margin-bottom:26px}
+h1{font-size:30px;line-height:1.2;margin:0 0 10px;color:#173c6b}
+.sub{font-size:17px;line-height:1.55;color:#4c5c70;margin:0 0 24px}
+label{display:block;font-weight:700;font-size:15px;margin:16px 0 8px}
+input{box-sizing:border-box;width:100%;min-height:54px;border:1px solid #b9c8da;border-radius:10px;padding:12px 14px;font:inherit;font-size:17px;color:#172b45;background:#fff}
+button{width:100%;min-height:54px;border:0;border-radius:10px;background:#176a4b;color:#fff;font:inherit;font-size:17px;font-weight:750;padding:12px 16px;margin-top:14px;cursor:pointer}
+button.secondary{background:#edf3f8;color:#173c6b;border:1px solid #cbd7e5}
+button:disabled{opacity:.6;cursor:wait}
+.message{min-height:24px;margin-top:16px;font-size:15px;line-height:1.45;color:#4c5c70}
+.message.error{color:#a42626}
+[hidden]{display:none!important}
+@media(max-width:480px){.login-card{padding:24px 20px}h1{font-size:27px}}
+</style>
+</head>
+<body>
+<main class="login-card">
+  <div class="login-brand">↗ COACH-CONNECT · VENDOR PORTAL</div>
+  <h1 id="heading">Sign in to manage your stalls</h1>
+  <p class="sub" id="subheading">Use your email to receive a one-time sign-in code. No password is required.</p>
+  <form id="login-form">
+    <div id="email-step">
+      <label for="email">Email address</label>
+      <input id="email" type="email" autocomplete="username webauthn" required maxlength="254" placeholder="you@example.com">
+      <button id="send-code" type="submit">Continue with email</button>
+    </div>
+    <div id="code-step" hidden>
+      <label for="code">Six-digit code</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="Enter the email code">
+      <button id="verify-code" type="button">Verify and sign in</button>
+      <button id="back-email" class="secondary" type="button">Use another email</button>
+    </div>
+    <div id="passkey-step" hidden>
+      <p class="sub">Add a passkey to make future sign-ins easier with your device's fingerprint, face, or screen lock.</p>
+      <button id="add-passkey" type="button">Add a passkey</button>
+      <button id="skip-passkey" class="secondary" type="button">Not now</button>
+    </div>
+  </form>
+  <p id="message" class="message" role="status" aria-live="polite"></p>
+</main>
+<script>
+(() => {
+  const auth = window.hatchable && window.hatchable.auth;
+  const form = document.getElementById('login-form');
+  const email = document.getElementById('email');
+  const code = document.getElementById('code');
+  const message = document.getElementById('message');
+  const emailStep = document.getElementById('email-step');
+  const codeStep = document.getElementById('code-step');
+  const passkeyStep = document.getElementById('passkey-step');
+  let hasPasskey = false;
+  let signedInUser = null;
+  const params = new URLSearchParams(location.search);
+  const requestedNext = params.get('next') || '/#vendor';
+  const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '/#vendor';
+  function say(text, error = false) { message.textContent = text; message.classList.toggle('error', error); }
+  function busy(button, value, text) { button.disabled = value; if (text) button.textContent = text; }
+  function finish() { location.assign(nextPath); }
+  if (!auth) { say('The sign-in service is unavailable. Reload this page or contact the site owner.', true); return; }
+  auth.getSession().then(session => { if (session && session.user) finish(); }).catch(() => {});
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.getElementById('send-code');
+    if (!email.reportValidity()) return;
+    busy(button, true, 'Sending code…');
+    try {
+      const result = await auth.startLogin({email: email.value.trim()});
+      hasPasskey = !!result.has_passkey;
+      if (hasPasskey && auth.supportsPasskeys()) {
+        try {
+          const signedIn = await auth.signInWithPasskey({email: email.value.trim()});
+          signedInUser = signedIn.user;
+          finish();
+          return;
+        } catch (_) { /* user cancelled or passkey failed; continue with email code */ }
+      }
+      emailStep.hidden = true;
+      codeStep.hidden = false;
+      code.required = true;
+      code.focus();
+      say('A sign-in code was sent if this email can access the app.');
+    } catch (error) {
+      say(error.message || 'Could not send a sign-in code. Please try again.', true);
+    } finally { busy(button, false, 'Continue with email'); }
+  });
+  document.getElementById('verify-code').addEventListener('click', async () => {
+    const button = document.getElementById('verify-code');
+    if (!email.reportValidity() || !code.reportValidity()) return;
+    busy(button, true, 'Verifying…');
+    try {
+      const result = await auth.verifyCode({email:email.value.trim(),code:code.value.trim()});
+      signedInUser = result.user;
+      if (!hasPasskey && auth.supportsPasskeys() && localStorage.getItem('coach_passkey_declined') !== '1') {
+        codeStep.hidden = true; passkeyStep.hidden = false;
+        document.getElementById('heading').textContent = 'Make your next sign-in easier';
+        document.getElementById('subheading').textContent = 'Your account is ready.';
+        say('You are signed in. You can add a passkey or continue without one.');
+      } else finish();
+    } catch (error) { say(error.message || 'The code could not be verified. Check it and try again.', true); }
+    finally { busy(button, false, 'Verify and sign in'); }
+  });
+  document.getElementById('back-email').addEventListener('click', () => { codeStep.hidden = true; emailStep.hidden = false; code.required = false; code.value = ''; say(''); });
+  document.getElementById('add-passkey').addEventListener('click', async () => {
+    const button = document.getElementById('add-passkey');
+    busy(button, true, 'Waiting for device…');
+    try { const result = await auth.registerPasskey({name:'Coach-Connect vendor device'}); if (!result) localStorage.setItem('coach_passkey_declined','1'); finish(); }
+    catch (_) { localStorage.setItem('coach_passkey_declined','1'); finish(); }
+    finally { busy(button, false, 'Add a passkey'); }
+  });
+  document.getElementById('skip-passkey').addEventListener('click', () => { localStorage.setItem('coach_passkey_declined','1'); finish(); });
+})();
+</script>
+</body>
+</html>
