@@ -455,3 +455,12 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #247d
   .result-heading .btn{font-size:18px;min-height:56px;padding:14px 18px}
   .data-row span{font-size:16px}
 }
+
+/* Separate-purpose route layout: search stays a form; live status stays focused. */
+.search-only-panel{max-width:760px;margin:24px auto 40px}
+.search-only-panel .field{margin-bottom:14px}
+.search-only-panel .error-text{min-height:0}
+.live-details .data-row:nth-child(n+4){display:none}
+#live-error{margin-top:14px}
+#journey-result .view-next-btn{margin-top:24px}
+#journey-result .data-note{margin-top:12px}
