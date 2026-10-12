@@ -39,7 +39,7 @@ async function seedOne(station){
        RETURNING id`,
       [id,t.name,t.category,key,name,'Sample Platform '+(i+1),
        'DEMO DATA ONLY — fictional sample, not a real or verified business.',DEMO_LABEL,
-       JSON.stringify(menu),t.emoji,'Sample: '+t.coach+' (not verified)','Sample directions only; verify on site.',t.status]
+       JSON.stringify(menu),t.emoji,'Sample: '+t.coach+' (not verified)','Station-level sample only; exact stall position is not verified.',t.status]
     );
   }
   const deleted=await db.query(

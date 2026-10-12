@@ -56,7 +56,7 @@ async function seedStationIfFirstVisit(stationKey, stationName) {
       [id,t.name,t.category,stationKey,stationName,'Sample Platform ' + (i + 1),
        'DEMO DATA ONLY — fictional sample, not a real or verified business.',DEMO_LABEL,
        JSON.stringify(menu),t.emoji,'Sample: ' + t.coach + ' (not verified)',
-       'Sample directions only; verify on site.',t.status]
+       'Station-level sample only; exact stall position is not verified.',t.status]
     );
   }
   await db.query(
